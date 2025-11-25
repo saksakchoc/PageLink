@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageLink</title>
+  <style>
+    :root {
+      --cream: #f7f2e9;
+      --accent: #2c6e49;
+      --shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+      --radius: 14px;
+      --mine: #f1e7d8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+      background: var(--cream);
+      color: #2c2c2c;
+      display: flex;
+      justify-content: center;
+    }
+    .page {
+      width: min(92vw, 680px);
+      padding: 28px 0 80px;
+    }
+    header { margin-bottom: 10px; }
+    .title { font-size: 1.5rem; letter-spacing: 0.04em; font-weight: 700; color: var(--accent); }
+    .subtitle { margin-top: 6px; font-size: 0.95rem; color: #4a4a4a; }
+    .user-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 10px 0 16px;
+      padding: 10px 14px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      font-size: 0.95rem;
+    }
+    .user-name { font-weight: 700; color: var(--accent); }
+    .user-btn {
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      padding: 9px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 14px rgba(44, 110, 73, 0.22);
+    }
+    .user-btn:hover { transform: translateY(-1px); }
+    .user-btn:active { transform: translateY(0); box-shadow: 0 3px 8px rgba(44, 110, 73, 0.28); }
+
+    form {
+      background: #fff;
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    label { font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+    input[type="number"], textarea, input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d3d0c7;
+      border-radius: 10px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      background: #fffdf8;
+    }
+    input[type="number"]:focus, textarea:focus, input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(44, 110, 73, 0.15);
+    }
+    input[type="number"] { max-width: 180px; }
+    .input-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    textarea { min-height: 96px; resize: vertical; line-height: 1.4; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    button {
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      padding: 10px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 14px rgba(44, 110, 73, 0.22);
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); box-shadow: 0 3px 8px rgba(44, 110, 73, 0.28); }
+    .error { color: #b22; font-size: 0.9rem; min-height: 1.2em; }
+
+    .timeline { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      display: grid;
+      gap: 8px;
+    }
+    .card.mine { background: var(--mine); }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .progress { font-weight: 800; color: var(--accent); font-size: 1.1rem; }
+    .timestamp { color: #6b665d; font-size: 0.9rem; }
+    .username { color: #5a564c; font-size: 0.95rem; font-weight: 700; }
+    .content { line-height: 1.5; white-space: pre-wrap; color: #2f2b25; }
+    .divider { margin: 0 0 10px 2px; color: #4a4a4a; font-size: 1rem; font-weight: 700; }
+
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 10;
+    }
+    .overlay.show { display: flex; }
+    .panel {
+      background: #fffdf8;
+      border-radius: 14px;
+      padding: 22px 20px;
+      width: min(90vw, 420px);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+      display: grid;
+      gap: 14px;
+    }
+    .user-list { display: grid; gap: 10px; }
+    .user-chip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #d8d2c7;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.1s ease;
+    }
+    .user-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .muted { color: #6b665d; font-size: 0.95rem; }
+    .small-btn {
+      padding: 7px 12px;
+      border-radius: 8px;
+      background: #f0ebe0;
+      color: #3d3a33;
+      font-weight: 700;
+      border: 1px solid #d1c8b7;
+      cursor: pointer;
+    }
+    .small-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    @media (max-width: 480px) {
+      .card, form { padding: 14px; }
+      .progress { font-size: 1rem; }
+      .user-bar { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="title">PageLink</div>
+      <div class="subtitle">いま読んでいる本：『獣の奏者』</div>
+    </header>
+
+    <div class="user-bar">
+      <div>ログイン中：<span id="current-user-name" class="user-name">-</span></div>
+      <button id="switch-user-btn" class="user-btn" type="button">ユーザー切り替え</button>
+    </div>
+
+    <form id="log-form">
+      <div class="input-row">
+        <label for="progress">進度 (%)</label>
+        <input id="progress" name="progress" type="number" min="0" max="100" step="1" required>
+      </div>
+
+      <div>
+        <label for="content">感想（100文字以内）</label>
+        <textarea id="content" name="content" maxlength="100" placeholder="感じたことやメモを書いてください" required></textarea>
+      </div>
+
+      <div class="actions">
+        <button type="submit">投稿する</button>
+      </div>
+      <div id="error" class="error"></div>
+    </form>
+
+    <section>
+      <div class="divider">タイムライン</div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+  </main>
+
+  <!-- ユーザー選択 / 新規作成モーダル -->
+  <div id="user-modal" class="overlay">
+    <div class="panel">
+      <div style="font-weight:700; font-size:1.05rem;">ユーザーを選択 / 新規作成</div>
+      <div class="user-list" id="user-list"></div>
+      <form id="new-user-form" style="display:grid; gap:10px;">
+        <label for="new-user-name">新規ユーザー名</label>
+        <input id="new-user-name" type="text" maxlength="30" required placeholder="例：あいこ">
+        <div class="actions" style="justify-content: flex-end;">
+          <button type="submit">この名前で始める</button>
+        </div>
+      </form>
+      <div class="actions" style="justify-content:flex-end;">
+        <button id="close-modal" class="small-btn" type="button">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TypeScript は main.ts、ビルド後の main.js を読み込む想定 -->
+  <script src="./main.js"></script>
+</body>
+</html>

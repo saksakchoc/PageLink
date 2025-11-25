@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  reading-app:
+    build: .
+    container_name: reading-pomodoro
+    ports:
+      - "8080:80"  # ローカル 8080 → コンテナ 80
+    restart: unless-stopped

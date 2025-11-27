@@ -4,13 +4,41 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PageLink</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%232c6e49'/%3E%3Cpath d='M20 20h24v4H20zm0 10h18v4H20zm0 10h12v4H20z' fill='%23f7f2e9'/%3E%3C/svg%3E">
   <style>
     :root {
-      --cream: #f7f2e9;
+      --cream: #fbf7ef;
       --accent: #2c6e49;
       --shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
       --radius: 14px;
-      --mine: #f1e7d8;
+      --mine: #f5ecdd;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #eef5ee;
+      color: #2c6e49;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: #f0ebe0;
+      color: #3d3a33;
+      font-weight: 700;
+      font-size: 0.8rem;
+    }
+    .tag-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 6px;
     }
     * { box-sizing: border-box; }
     body {
@@ -18,12 +46,43 @@
       font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
       background: var(--cream);
       color: #2c2c2c;
+    }
+    .top-nav {
+      position: sticky;
+      top: 0;
       display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--cream);
+      z-index: 5;
       justify-content: center;
     }
+    .nav-btn {
+      border: 1px solid #d8d2c7;
+      background: #fffdf8;
+      color: #2c2c2c;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 700;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+    }
+    .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     .page {
-      width: min(92vw, 680px);
+      width: min(92vw, 720px);
       padding: 28px 0 80px;
+      margin: 0 auto;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .placeholder-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      color: #534f45;
     }
     header { margin-bottom: 10px; }
     .title { font-size: 1.5rem; letter-spacing: 0.04em; font-weight: 700; color: var(--accent); }
@@ -65,7 +124,7 @@
       margin-bottom: 18px;
     }
     label { font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
-    input[type="number"], textarea, input[type="text"] {
+    input[type="number"], textarea, input[type="text"], input[type="email"], input[type="password"] {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #d3d0c7;
@@ -75,7 +134,7 @@
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
       background: #fffdf8;
     }
-    input[type="number"]:focus, textarea:focus, input[type="text"]:focus {
+    input[type="number"]:focus, textarea:focus, input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(44, 110, 73, 0.15);
     }
@@ -172,48 +231,168 @@
   </style>
 </head>
 <body>
+  <nav class="top-nav">
+    <button class="nav-btn" data-view="login-view" type="button">ログイン</button>
+    <button class="nav-btn" data-view="search-view" type="button">本を探す</button>
+    <button class="nav-btn" data-view="book-page" type="button">タイムライン</button>
+    <button class="nav-btn" data-view="my-reading-view" type="button">読書中</button>
+    <button class="nav-btn" data-view="my-finished-view" type="button">読了</button>
+    <button class="nav-btn" data-view="profile-view" type="button">プロフィール</button>
+  </nav>
+
   <main class="page">
-    <header>
-      <div class="title">PageLink</div>
-      <div class="subtitle">いま読んでいる本：『獣の奏者』</div>
-    </header>
+    <section id="login-view" class="view">
+      <header>
+        <div class="title">ログイン / サインアップ</div>
+        <div class="subtitle">ユーザーIDとパスワードでログインできます</div>
+      </header>
+      <form id="login-form" class="placeholder-card" style="display:grid; gap:10px;">
+        <label for="login-email">ユーザーID</label>
+        <input id="login-email" type="text" autocomplete="username" required value="demo">
+        <label for="login-password">パスワード</label>
+        <input id="login-password" type="password" autocomplete="current-password" required value="password">
+        <div class="actions" style="justify-content:flex-start;">
+          <button type="submit">ログイン</button>
+        </div>
+        <div id="login-error" class="error"></div>
+      </form>
 
-    <div class="user-bar">
-      <div>ログイン中：<span id="current-user-name" class="user-name">-</span></div>
-      <button id="switch-user-btn" class="user-btn" type="button">ユーザー切り替え</button>
-    </div>
+      <form id="signup-form" class="placeholder-card" style="display:grid; gap:10px; margin-top:12px;">
+        <label for="signup-display-name">表示名</label>
+        <input id="signup-display-name" type="text" autocomplete="name" required placeholder="例：さちこ">
+        <label for="signup-email">ユーザーID</label>
+        <input id="signup-email" type="text" autocomplete="username" required placeholder="例：sachiko">
+        <label for="signup-password">パスワード</label>
+        <input id="signup-password" type="password" autocomplete="new-password" required>
+        <div class="actions" style="justify-content:flex-start;">
+          <button type="submit">新規登録</button>
+        </div>
+        <div id="signup-error" class="error"></div>
+      </form>
+    </section>
 
-    <form id="log-form">
-      <div class="input-row">
-        <label for="progress">進度 (%)</label>
-        <input id="progress" name="progress" type="number" min="0" max="100" step="1" required>
+    <section id="search-view" class="view">
+      <header>
+        <div class="title">本を探す</div>
+        <div class="subtitle">タイトルで検索し、結果リストから作品を選択</div>
+      </header>
+      <form id="search-form" class="placeholder-card" style="display:grid; gap:10px;">
+        <label for="search-input">タイトルで検索</label>
+        <input id="search-input" type="text" placeholder="例：獣の奏者" />
+        <div class="actions" style="justify-content:flex-start;">
+          <button type="submit">検索</button>
+        </div>
+      </form>
+      <div id="search-results" class="timeline"></div>
+    </section>
+
+    <section id="book-page" class="view">
+      <header>
+        <div class="title">PageLink</div>
+        <div id="current-book-subtitle" class="subtitle">いま読んでいる本：なし</div>
+      </header>
+
+      <div class="user-bar">
+        <div>ログイン中：<span id="current-user-name" class="user-name">-</span></div>
+        <button id="switch-user-btn" class="user-btn" type="button">ユーザー切り替え</button>
       </div>
 
-      <div>
-        <label for="content">感想（100文字以内）</label>
-        <textarea id="content" name="content" maxlength="100" placeholder="感じたことやメモを書いてください" required></textarea>
-      </div>
+      <form id="log-form">
+        <div class="input-row">
+          <label for="progress">進度 (%)</label>
+          <input id="progress" name="progress" type="number" min="0" max="100" step="1" required>
+        </div>
+        <div id="progress-helper" class="muted"></div>
 
-      <div class="actions">
-        <button type="submit">投稿する</button>
-      </div>
-      <div id="error" class="error"></div>
-    </form>
+        <div style="display:grid; gap:8px;">
+          <label for="content">感想（100文字以内）</label>
+          <textarea id="content" name="content" maxlength="100" placeholder="感じたことやメモを書いてください" required></textarea>
+          <label for="visibility" style="display:flex; align-items:center; gap:8px;">
+            公開範囲
+            <select id="visibility" name="visibility" style="padding:8px 10px; border-radius:10px; border:1px solid #d3d0c7; background:#fffdf8;">
+              <option value="public">公開</option>
+              <option value="private">非公開</option>
+            </select>
+          </label>
+        </div>
 
-    <section>
-      <div class="divider">タイムライン</div>
-      <div id="timeline" class="timeline"></div>
+        <div class="actions">
+          <button type="submit">投稿する</button>
+        </div>
+        <div id="error" class="error"></div>
+      </form>
+
+      <section>
+        <div class="divider">タイムライン</div>
+        <div id="timeline" class="timeline"></div>
+      </section>
+    </section>
+
+    <section id="book-detail-view" class="view">
+      <header>
+        <div class="title">本の詳細</div>
+        <div class="subtitle">入力モードと総ページ数を設定できます</div>
+      </header>
+      <div id="book-meta" class="placeholder-card" style="display:grid; gap:8px; margin-bottom:12px;"></div>
+      <form id="book-settings-form" class="placeholder-card" style="display:grid; gap:10px; margin-bottom:12px;">
+        <div class="divider">読んでいる本の設定</div>
+        <div id="total-pages-row" style="display:grid; gap:6px;">
+          <label for="total-pages">総ページ数（あとがき等含む）</label>
+          <input id="total-pages" type="number" min="1" placeholder="例: 520">
+        </div>
+        <label for="reading-mode">入力モード</label>
+        <select id="reading-mode">
+          <option value="percent">パーセンテージで入力</option>
+          <option value="pages">ページ数で入力</option>
+        </select>
+        <div id="settings-helper" class="muted"></div>
+        <div class="actions" style="justify-content:flex-start;">
+          <button type="submit">設定を保存</button>
+        </div>
+      </form>
+      <form id="book-progress-form" class="placeholder-card" style="display:grid; gap:10px;">
+        <div class="divider">進捗を変更</div>
+        <label for="detail-progress">進捗</label>
+        <input id="detail-progress" type="number" min="0">
+        <div id="detail-progress-helper" class="muted"></div>
+        <div class="actions" style="justify-content:flex-start;">
+          <button type="submit">進捗を保存</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="my-reading-view" class="view">
+      <header>
+        <div class="title">読書中の本</div>
+        <div class="subtitle">UserBook status=reading を一覧表示予定</div>
+      </header>
+      <div id="reading-list" class="timeline"></div>
+    </section>
+
+    <section id="my-finished-view" class="view">
+      <header>
+        <div class="title">読了した本</div>
+        <div class="subtitle">UserBook status=finished を一覧表示予定</div>
+      </header>
+      <div id="finished-list" class="timeline"></div>
+    </section>
+
+    <section id="profile-view" class="view">
+      <header>
+        <div class="title">プロフィール</div>
+        <div class="subtitle">表示名・自己紹介・アイコン編集をここで実装予定</div>
+      </header>
+      <div id="profile-card" class="placeholder-card"></div>
     </section>
   </main>
 
-  <!-- ユーザー選択 / 新規作成モーダル -->
   <div id="user-modal" class="overlay">
     <div class="panel">
       <div style="font-weight:700; font-size:1.05rem;">ユーザーを選択 / 新規作成</div>
       <div class="user-list" id="user-list"></div>
       <form id="new-user-form" style="display:grid; gap:10px;">
         <label for="new-user-name">新規ユーザー名</label>
-        <input id="new-user-name" type="text" maxlength="30" required placeholder="例：あいこ">
+        <input id="new-user-name" type="text" maxlength="30" required placeholder="例：さちこ">
         <div class="actions" style="justify-content: flex-end;">
           <button type="submit">この名前で始める</button>
         </div>
@@ -224,7 +403,6 @@
     </div>
   </div>
 
-  <!-- TypeScript は main.ts、ビルド後の main.js を読み込む想定 -->
   <script src="./main.js"></script>
 </body>
 </html>

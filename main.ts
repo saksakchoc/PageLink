@@ -1,153 +1,54 @@
-// 複数ユーザー対応の読書ログアプリ（IndexedDB + localStorage）
+// Reading progress SNS frontend (API first, no IndexedDB persistence)
 
-interface User {
+interface ApiUser {
   id: number;
-  name: string;
-  createdAt: string;
+  displayName: string;
+  userId: string;
 }
 
-interface LogEntry {
-  id?: number;
-  progress: number;
+interface ApiBook {
+  id: number;
+  title: string;
+  author: string;
+  language?: string;
+  total_pages_isbn?: number;
+}
+
+interface ApiUserBook {
+  id: number;
+  user_id: number;
+  book_id: number;
+  total_pages_user: number;
+  status: "reading" | "finished" | "on_hold" | "dropped";
+  latest_progress_percent: number;
+  reading_mode?: "percent" | "pages";
+}
+
+interface ApiReadingLog {
+  id: number;
+  user_id: number;
+  book_id: number;
+  progress_percent: number;
   content: string;
-  createdAt: string;
-  userId: number;
+  visibility: "public" | "private";
+  created_at: string;
 }
 
-const DB_NAME = "reading_pomodoro_db";
-const LOG_STORE = "logs";
-const USER_STORE = "users";
-const DB_VERSION = 2;
+const API_BASE = "http://localhost:3000";
+const API_AUTH_TOKEN_KEY = "apiAuthToken";
+const CURRENT_BOOK_STORAGE_KEY = "currentBookId";
 
-const CURRENT_USER_KEY = "pomologCurrentUserId";
-const SPOILER_MARGIN = 5; // ネタバレ余白(%)
+let apiUsers: ApiUser[] = [];
+let apiBooks: ApiBook[] = [];
+let apiUserBooks: ApiUserBook[] = [];
+let apiReadingLogs: ApiReadingLog[] = [];
+let currentUser: ApiUser | null = null;
+let currentUserBook: ApiUserBook | null = null;
+let currentBookId: number | null = null;
+let tempReadingMode: "percent" | "pages" | null = null;
+const DEMO_USER_ID = "demo";
+const DEMO_PASSWORD = "password";
 
-let db: IDBDatabase | null = null;
-
-// ユーザー名をキャッシュ（タイムライン描画用）
-const userCache = new Map<number, string>();
-
-// -------------------------------
-// IndexedDB 周り
-// -------------------------------
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = (event) => {
-      const database = (event.target as IDBOpenDBRequest).result;
-      // logs ストアが無ければ作成
-      if (!database.objectStoreNames.contains(LOG_STORE)) {
-        database.createObjectStore(LOG_STORE, { keyPath: "id", autoIncrement: true });
-      }
-      // users ストアを追加
-      if (!database.objectStoreNames.contains(USER_STORE)) {
-        database.createObjectStore(USER_STORE, { keyPath: "id", autoIncrement: true });
-      }
-    };
-
-    request.onsuccess = () => {
-      db = request.result;
-      resolve(request.result);
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function getAllUsers(): Promise<User[]> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error("DB not initialized"));
-    const tx = db.transaction(USER_STORE, "readonly");
-    const store = tx.objectStore(USER_STORE);
-    const req = store.getAll();
-    req.onsuccess = () => resolve((req.result as User[]) || []);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function getUserById(id: number): Promise<User | null> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error("DB not initialized"));
-    const tx = db.transaction(USER_STORE, "readonly");
-    const store = tx.objectStore(USER_STORE);
-    const req = store.get(id);
-    req.onsuccess = () => resolve((req.result as User) || null);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function createUser(name: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error("DB not initialized"));
-    const tx = db.transaction(USER_STORE, "readwrite");
-    const store = tx.objectStore(USER_STORE);
-    const createdAt = new Date().toISOString();
-    const req = store.add({ name, createdAt });
-    req.onsuccess = () => resolve(req.result as number);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function setCurrentUser(id: number) {
-  localStorage.setItem(CURRENT_USER_KEY, String(id));
-}
-
-async function getCurrentUser(): Promise<User | null> {
-  const idStr = localStorage.getItem(CURRENT_USER_KEY);
-  if (!idStr) return null;
-  const id = Number(idStr);
-  if (Number.isNaN(id)) return null;
-  return await getUserById(id);
-}
-
-function getAllLogs(): Promise<LogEntry[]> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error("DB not initialized"));
-    const tx = db.transaction(LOG_STORE, "readonly");
-    const store = tx.objectStore(LOG_STORE);
-    const req = store.getAll();
-    req.onsuccess = () => resolve((req.result as LogEntry[]) || []);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function addLog(progress: number, content: string, userId: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error("DB not initialized"));
-    const tx = db.transaction(LOG_STORE, "readwrite");
-    const store = tx.objectStore(LOG_STORE);
-    const createdAt = new Date().toISOString();
-    store.add({ progress, content, createdAt, userId });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function getLatestProgressForUser(userId: number): Promise<number | null> {
-  const logs = await getAllLogs();
-  const target = logs
-    .filter((l) => l.userId === userId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-  return target ? target.progress : null;
-}
-
-// 既存ログに userId が無い場合、指定ユーザーに紐づける簡易マイグレーション
-async function migrateExistingLogs(defaultUserId: number) {
-  if (!db) return;
-  const logs = await getAllLogs();
-  const needUpdate = logs.filter((l) => l.userId === undefined || l.userId === null);
-  if (needUpdate.length === 0) return;
-
-  const tx = db.transaction(LOG_STORE, "readwrite");
-  const store = tx.objectStore(LOG_STORE);
-  needUpdate.forEach((log) => {
-    store.put({ ...log, userId: defaultUserId });
-  });
-}
-
-// -------------------------------
-// UI ヘルパー
-// -------------------------------
 function qs<T extends HTMLElement>(selector: string): T {
   const el = document.querySelector(selector);
   if (!el) throw new Error(`Element not found: ${selector}`);
@@ -165,47 +66,269 @@ function formatDate(iso: string): string {
   });
 }
 
-function renderUserArea(currentUser: User | null, users: User[]) {
+function setActiveView(viewId: string) {
+  document.querySelectorAll<HTMLElement>(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
+  document.querySelectorAll<HTMLButtonElement>(".nav-btn").forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset.view === viewId),
+  );
+}
+
+function getAuthToken(): string | null {
+  const token = localStorage.getItem(API_AUTH_TOKEN_KEY);
+  return token || null;
+}
+
+function setAuthToken(token: string | null) {
+  if (token) localStorage.setItem(API_AUTH_TOKEN_KEY, token);
+  else localStorage.removeItem(API_AUTH_TOKEN_KEY);
+}
+
+function getCurrentBookId(): number | null {
+  if (currentBookId) return currentBookId;
+  const stored = Number(localStorage.getItem(CURRENT_BOOK_STORAGE_KEY) || "");
+  if (!Number.isNaN(stored) && stored > 0) {
+    currentBookId = stored;
+    return stored;
+  }
+  return null;
+}
+
+function setCurrentBookId(id: number | null) {
+  currentBookId = id;
+  if (id) localStorage.setItem(CURRENT_BOOK_STORAGE_KEY, String(id));
+  else localStorage.removeItem(CURRENT_BOOK_STORAGE_KEY);
+}
+
+async function apiGet<T>(path: string, withAuth = false): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (withAuth) {
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+async function apiPost<T>(path: string, body: Record<string, unknown>, withAuth = false): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (withAuth) {
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+async function apiPatch<T>(path: string, body: Record<string, unknown>, withAuth = false): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (withAuth) {
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { method: "PATCH", headers, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+function renderUserArea() {
   const el = qs<HTMLSpanElement>("#current-user-name");
-  el.textContent = currentUser ? currentUser.name : "-";
-  // 一覧のためにキャッシュ
-  users.forEach((u) => userCache.set(u.id, u.name));
+  el.textContent = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
 }
 
-function resolveUserName(userId: number): string {
-  const name = userCache.get(userId);
-  return name || "ユーザー";
+function renderSearchResults(keyword: string) {
+  const list = qs<HTMLDivElement>("#search-results");
+  list.innerHTML = "";
+  const normalized = keyword.trim().toLowerCase();
+  const beastVolumes: ApiBook[] = [
+    { id: 101, title: "獣の奏者 I 闘蛇編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 432 },
+    { id: 102, title: "獣の奏者 II 王獣編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 456 },
+    { id: 103, title: "獣の奏者 III 探求編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 480 },
+    { id: 104, title: "獣の奏者 IV 完結編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 520 },
+    { id: 105, title: "獣の奏者 外伝 刹那", author: "上橋菜穂子", language: "ja", total_pages_isbn: 240 },
+  ];
+  const shouldShowBeast =
+    normalized === "" || normalized.includes("獣の奏者") || normalized.includes("kemono") || normalized.includes("beast");
+  const merged: ApiBook[] = shouldShowBeast ? [...beastVolumes] : [];
+  const filtered = merged.filter((b) => {
+    if (!normalized) return true;
+    return b.title.toLowerCase().includes(normalized) || b.author.toLowerCase().includes(normalized);
+  });
+  if (filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = "該当する本が見つかりませんでした";
+    list.appendChild(empty);
+    return;
+  }
+  filtered.forEach((b) => {
+    const card = document.createElement("article");
+    card.className = "card";
+    const title = document.createElement("div");
+    title.className = "username";
+    title.textContent = b.title;
+    const author = document.createElement("div");
+    author.className = "muted";
+    author.textContent = b.author;
+    const meta = document.createElement("div");
+    meta.className = "muted";
+    meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${b.total_pages_isbn ?? "-"}p`;
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.style.justifyContent = "flex-start";
+    const startBtn = document.createElement("button");
+    startBtn.type = "button";
+    startBtn.textContent = "この本を読み始める";
+    startBtn.addEventListener("click", async () => {
+      if (!currentUser) {
+        alert("ログインしてください");
+        return;
+      }
+      const pages = b.total_pages_isbn || 100;
+      try {
+        const existing = apiUserBooks.find((ub) => ub.user_id === currentUser!.id && ub.book_id === b.id);
+        if (existing) {
+          await apiPatch(`/api/user-books/${existing.id}`, { status: "reading" }, true);
+          setCurrentBookId(b.id);
+        } else {
+          await apiPost<ApiUserBook>(
+            "/api/user-books",
+            { book_id: b.id, total_pages_user: pages, status: "reading", reading_mode: "percent" },
+            true,
+          );
+          setCurrentBookId(b.id);
+        }
+        await loadApiData();
+        renderAllViews();
+        setActiveView("my-reading-view");
+      } catch (err) {
+        alert("読書開始に失敗しました");
+        console.error(err);
+      }
+    });
+    actions.appendChild(startBtn);
+
+    card.appendChild(title);
+    card.appendChild(author);
+    card.appendChild(meta);
+    card.appendChild(actions);
+    list.appendChild(card);
+  });
 }
 
-// タイムライン描画
-function renderTimeline(logs: LogEntry[], currentUser: User | null, currentProgress: number | null) {
+function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
+  const container = qs<HTMLDivElement>(`#${targetElId}`);
+  container.innerHTML = "";
+  const targets = apiUserBooks.filter((ub) => ub.status === status);
+  if (targets.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = status === "reading" ? "読書中の本がありません" : "読み終わった本がありません";
+    container.appendChild(empty);
+    return;
+  }
+  targets.forEach((ub) => {
+    const book = apiBooks.find((b) => b.id === ub.book_id);
+    const card = document.createElement("article");
+    card.className = "card";
+    const top = document.createElement("div");
+    top.className = "card-top";
+    const title = document.createElement("div");
+    title.className = "username";
+    title.textContent = book ? book.title : "不明な本";
+    const progress = document.createElement("div");
+    progress.className = "pill";
+    progress.textContent = `${ub.latest_progress_percent}%`;
+    top.appendChild(title);
+    top.appendChild(progress);
+    const meta = document.createElement("div");
+    meta.className = "muted";
+    meta.textContent = `著者: ${book?.author ?? "-"} / 総ページ: ${ub.total_pages_user}p`;
+    card.appendChild(top);
+    card.appendChild(meta);
+    if (status === "reading") {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.style.justifyContent = "flex-start";
+      const detailBtn = document.createElement("button");
+      detailBtn.type = "button";
+      detailBtn.textContent = "この本の詳細";
+      detailBtn.addEventListener("click", async () => {
+        setCurrentBookId(ub.book_id);
+        await loadApiData();
+        renderAllViews();
+        setActiveView("book-detail-view");
+      });
+      const setCurrentBtn = document.createElement("button");
+      setCurrentBtn.type = "button";
+      setCurrentBtn.textContent = "今読んでいる本に設定";
+      setCurrentBtn.addEventListener("click", async () => {
+        setCurrentBookId(ub.book_id);
+        await loadApiData();
+        renderAllViews();
+        setActiveView("book-page");
+      });
+      actions.appendChild(detailBtn);
+      actions.appendChild(setCurrentBtn);
+      card.appendChild(actions);
+    }
+    container.appendChild(card);
+  });
+}
+
+function renderProfileCard() {
+  const card = qs<HTMLDivElement>("#profile-card");
+  card.innerHTML = "";
+  const name = document.createElement("div");
+  name.className = "username";
+  name.textContent = currentUser ? currentUser.displayName : "未ログイン";
+  const idText = document.createElement("div");
+  idText.className = "muted";
+  idText.textContent = currentUser ? `@${currentUser.userId}` : "ログインしてください";
+  const bio = document.createElement("div");
+  bio.style.marginTop = "6px";
+  bio.textContent = "本とコーヒーが好きなデザイナー";
+  card.appendChild(name);
+  card.appendChild(idText);
+  card.appendChild(bio);
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.style.justifyContent = "flex-start";
+  const logoutBtn = document.createElement("button");
+  logoutBtn.type = "button";
+  logoutBtn.textContent = "ログアウト";
+  logoutBtn.disabled = !currentUser;
+  logoutBtn.addEventListener("click", async () => {
+    setAuthToken(null);
+    currentUser = null;
+    await loadApiData();
+    renderAllViews();
+    setActiveView("login-view");
+  });
+  actions.appendChild(logoutBtn);
+  card.appendChild(actions);
+}
+
+function renderApiTimeline() {
   const container = qs<HTMLDivElement>("#timeline");
   container.innerHTML = "";
 
   if (!currentUser) {
-    container.textContent = "ユーザーを選択してください。";
+    container.textContent = "ログインしてください";
     return;
   }
 
-  const allowedMax = Math.max((currentProgress ?? 0) - SPOILER_MARGIN, 0);
-
-  const filtered = logs.filter((log) => {
-    if (log.userId === currentUser.id) return true; // 自分のログは全表示
-    if (currentProgress === null) return false; // 自分の進捗なしなら他人は表示しない
-    return log.progress <= allowedMax;
-  });
-
-  filtered.sort((a, b) => {
-    if (b.progress !== a.progress) return b.progress - a.progress;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const filtered = [...apiReadingLogs].sort((a, b) => {
+    if (b.progress_percent !== a.progress_percent) return b.progress_percent - a.progress_percent;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
   if (filtered.length === 0) {
     const empty = document.createElement("div");
-    empty.textContent =
-      currentProgress === null
-        ? "まだ投稿がありません。まずは自分の一件目を記録しましょう！"
-        : "ネタバレを防ぐため、表示できる投稿がありません。";
+    empty.textContent = "投稿がまだありません。最初の感想を残しましょう";
     empty.style.color = "#6b665d";
     empty.style.fontSize = "0.95rem";
     container.appendChild(empty);
@@ -215,25 +338,33 @@ function renderTimeline(logs: LogEntry[], currentUser: User | null, currentProgr
   filtered.forEach((log) => {
     const card = document.createElement("article");
     card.className = "card";
-    if (log.userId === currentUser.id) card.classList.add("mine");
+    if (log.user_id === currentUser.id) card.classList.add("mine");
 
     const top = document.createElement("div");
     top.className = "card-top";
 
     const prog = document.createElement("div");
     prog.className = "progress";
-    prog.textContent = `${log.progress}%`;
+    prog.textContent = `${log.progress_percent}%`;
 
     const time = document.createElement("div");
     time.className = "timestamp";
-    time.textContent = formatDate(log.createdAt);
+    time.textContent = formatDate(log.created_at);
 
     top.appendChild(prog);
     top.appendChild(time);
 
     const userName = document.createElement("div");
     userName.className = "username";
-    userName.textContent = resolveUserName(log.userId);
+    const user = apiUsers.find((u) => u.id === log.user_id);
+    userName.textContent = user ? user.displayName : "ユーザー";
+
+    const tags = document.createElement("div");
+    tags.className = "tag-row";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = log.visibility === "private" ? "非公開" : "公開";
+    tags.appendChild(tag);
 
     const content = document.createElement("div");
     content.className = "content";
@@ -242,214 +373,444 @@ function renderTimeline(logs: LogEntry[], currentUser: User | null, currentProgr
     card.appendChild(top);
     card.appendChild(userName);
     card.appendChild(content);
+    card.appendChild(tags);
 
     container.appendChild(card);
   });
 }
 
-// 入力バリデーション
-function validate(progressVal: number, contentVal: string): boolean {
-  const errorEl = qs<HTMLDivElement>("#error");
-  errorEl.textContent = "";
-  if (contentVal.trim().length === 0) {
-    errorEl.textContent = "感想を入力してください。";
-    return false;
+function renderBookSettings() {
+  const pagesInput = qs<HTMLInputElement>("#total-pages");
+  const pagesRow = qs<HTMLDivElement>("#total-pages-row");
+  const modeSelect = qs<HTMLSelectElement>("#reading-mode");
+  const modeLabel = qs<HTMLLabelElement>('label[for="progress"]');
+  const latestLabel = qs<HTMLDivElement>("#progress-helper");
+  const progressInput = qs<HTMLInputElement>("#progress");
+
+  const mode = (tempReadingMode ||
+    currentUserBook?.reading_mode ||
+    (modeSelect.value as "percent" | "pages" | "") ||
+    "percent") as "percent" | "pages";
+  modeSelect.value = mode;
+  pagesInput.value = currentUserBook ? String(currentUserBook.total_pages_user) : "";
+  pagesInput.disabled = mode !== "pages";
+  pagesRow.style.display = mode === "pages" ? "grid" : "none";
+
+  progressInput.min = "0";
+  if (mode === "pages") {
+    const total = currentUserBook?.total_pages_user;
+    progressInput.max = total ? String(total) : "";
+    progressInput.placeholder = total ? `0〜${total} ページ` : "ページ数を入力";
+  } else {
+    progressInput.max = "100";
+    progressInput.placeholder = "0〜100";
   }
-  if (!Number.isInteger(progressVal) || progressVal < 0 || progressVal > 100) {
-    errorEl.textContent = "進度は0〜100の整数で入力してください。";
-    return false;
+
+  if (mode === "pages") {
+    modeLabel.textContent = "進度 (ページ)";
+    latestLabel.textContent =
+      currentUserBook && currentUserBook.latest_progress_percent >= 0
+        ? `現在: 約 ${(currentUserBook.total_pages_user * currentUserBook.latest_progress_percent) / 100} / ${currentUserBook.total_pages_user} ページ`
+        : "";
+  } else {
+    modeLabel.textContent = "進度 (%)";
+    latestLabel.textContent =
+      currentUserBook && currentUserBook.latest_progress_percent >= 0
+        ? `現在: ${currentUserBook.latest_progress_percent}%`
+        : "";
   }
-  return true;
 }
 
-// モーダル表示/非表示
-function showUserModal(force = false) {
-  const modal = qs<HTMLDivElement>("#user-modal");
-  modal.classList.add("show");
-  if (force) modal.dataset.force = "true";
-}
+function renderDetailProgress() {
+  const input = qs<HTMLInputElement>("#detail-progress");
+  const helper = qs<HTMLDivElement>("#detail-progress-helper");
+  const mode = currentUserBook?.reading_mode || "percent";
+  const total = currentUserBook?.total_pages_user;
 
-function hideUserModal(forceClose = false) {
-  const modal = qs<HTMLDivElement>("#user-modal");
-  if (modal.dataset.force === "true" && !forceClose) return; // 初回強制時は閉じさせない
-  modal.classList.remove("show");
-  modal.dataset.force = "";
-}
-
-// ユーザー一覧を再生成
-async function rebuildUserList() {
-  const list = qs<HTMLDivElement>("#user-list");
-  list.innerHTML = "";
-  const users = await getAllUsers();
-  if (users.length === 0) {
-    const empty = document.createElement("div");
-    empty.textContent = "まだユーザーがいません。下のフォームから登録してください。";
-    empty.className = "muted";
-    list.appendChild(empty);
-    return;
+  input.min = "0";
+  if (mode === "pages") {
+    input.max = total ? String(total) : "";
+    input.placeholder = total ? `0〜${total} ページ` : "ページ数を入力";
+    input.value =
+      currentUserBook && total
+        ? String(Math.round((total * currentUserBook.latest_progress_percent) / 100))
+        : "";
+    helper.textContent =
+      currentUserBook && total
+        ? `現在: 約 ${(total * currentUserBook.latest_progress_percent) / 100} / ${total} ページ`
+        : "総ページ数を設定してください";
+  } else {
+    input.max = "100";
+    input.placeholder = "0〜100";
+    input.value = currentUserBook ? String(currentUserBook.latest_progress_percent) : "";
+    helper.textContent =
+      currentUserBook && currentUserBook.latest_progress_percent >= 0
+        ? `現在: ${currentUserBook.latest_progress_percent}%`
+        : "";
   }
-  const current = await getCurrentUser();
-  users.forEach((u) => {
-    userCache.set(u.id, u.name);
-    const item = document.createElement("div");
-    item.className = "user-chip";
-    const name = document.createElement("div");
-    name.textContent = u.name;
-    const meta = document.createElement("div");
-    meta.className = "muted";
-    meta.textContent = current && current.id === u.id ? "選択中" : "選択";
-    item.appendChild(name);
-    item.appendChild(meta);
-    item.addEventListener("click", async () => {
-      setCurrentUser(u.id);
-      renderUserArea(u, users);
-      await refreshTimeline();
-      await updateProgressInput();
-      hideUserModal();
-    });
-    list.appendChild(item);
-  });
 }
 
-// ユーザー切り替え/新規のイベント設置
-function setupUserModalHandlers() {
-  const switchBtn = qs<HTMLButtonElement>("#switch-user-btn");
-  const closeBtn = qs<HTMLButtonElement>("#close-modal");
-  const newUserForm = qs<HTMLFormElement>("#new-user-form");
+function renderCurrentBookSubtitle() {
+  const subtitle = document.querySelector<HTMLDivElement>("#current-book-subtitle");
+  if (!subtitle) return;
 
-  switchBtn.addEventListener("click", async () => {
-    await rebuildUserList();
-    showUserModal();
-  });
+  const current = getCurrentBookId();
+  const book = current ? apiBooks.find((b) => b.id === current) : null;
+  const progress = currentUserBook?.latest_progress_percent;
+  const progressText = typeof progress === "number" && Number.isFinite(progress) ? `（進度: ${progress}%）` : "";
 
-  closeBtn.addEventListener("click", () => hideUserModal());
+  subtitle.textContent = book ? `いま読んでいる本：${book.title}${progressText}` : "いま読んでいる本：なし";
+}
 
-  newUserForm.addEventListener("submit", async (e) => {
+function renderBookMeta() {
+  const meta = qs<HTMLDivElement>("#book-meta");
+  meta.innerHTML = "";
+  const current = getCurrentBookId();
+  const book = current ? apiBooks.find((b) => b.id === current) : null;
+  const title = document.createElement("div");
+  title.className = "username";
+  title.textContent = book ? book.title : "未設定の本";
+  const author = document.createElement("div");
+  author.className = "muted";
+  author.textContent = book ? `著者: ${book.author}` : "";
+  const mode = document.createElement("div");
+  mode.className = "muted";
+  mode.textContent = `入力モード: ${currentUserBook?.reading_mode === "pages" ? "ページ" : "パーセンテージ"}`;
+  const pages = document.createElement("div");
+  pages.className = "muted";
+  pages.textContent = currentUserBook ? `総ページ: ${currentUserBook.total_pages_user}p` : "総ページ未設定";
+  meta.appendChild(title);
+  meta.appendChild(author);
+  meta.appendChild(mode);
+  meta.appendChild(pages);
+}
+
+function renderAllViews() {
+  renderUserArea();
+  renderUserBookList("reading", "reading-list");
+  renderUserBookList("finished", "finished-list");
+  renderProfileCard();
+  renderApiTimeline();
+  updateProgressInput();
+  renderCurrentBookSubtitle();
+  renderBookMeta();
+  renderDetailProgress();
+}
+
+function setupSearchHandlers() {
+  const form = qs<HTMLFormElement>("#search-form");
+  const input = qs<HTMLInputElement>("#search-input");
+  form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const input = qs<HTMLInputElement>("#new-user-name");
-    const name = input.value.trim();
-    if (!name) return;
+    renderSearchResults(input.value);
+  });
+}
+
+function setupAuthHandlers() {
+  const form = qs<HTMLFormElement>("#login-form");
+  const emailInput = qs<HTMLInputElement>("#login-email");
+  const passwordInput = qs<HTMLInputElement>("#login-password");
+  const errorEl = qs<HTMLDivElement>("#login-error");
+  const signupForm = qs<HTMLFormElement>("#signup-form");
+  const signupDisplay = qs<HTMLInputElement>("#signup-display-name");
+  const signupEmail = qs<HTMLInputElement>("#signup-email");
+  const signupPassword = qs<HTMLInputElement>("#signup-password");
+  const signupError = qs<HTMLDivElement>("#signup-error");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.textContent = "";
     try {
-      const id = await createUser(name);
-      userCache.set(id, name);
-      setCurrentUser(id);
-      await rebuildUserList();
-      await refreshTimeline();
-      renderUserArea({ id, name, createdAt: new Date().toISOString() }, await getAllUsers());
-      await updateProgressInput();
-      input.value = "";
-      hideUserModal(true);
+      const result = await apiPost<{ token: string; user: ApiUser }>("/api/auth/login", {
+        userId: emailInput.value.trim(),
+        password: passwordInput.value,
+      });
+      setAuthToken(result.token);
+      currentUser = result.user;
+      await loadApiData();
+      renderAllViews();
+      setActiveView("book-page");
     } catch (err) {
-      alert("ユーザー作成に失敗しました。");
+      errorEl.textContent = "ログインに失敗しました。ユーザーIDとパスワードを確認してください。";
+      console.error(err);
+    }
+  });
+
+  signupForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    signupError.textContent = "";
+    try {
+      const result = await apiPost<{ token: string; user: ApiUser }>("/api/auth/signup", {
+        displayName: signupDisplay.value.trim(),
+        userId: signupEmail.value.trim(),
+        password: signupPassword.value,
+      });
+      setAuthToken(result.token);
+      currentUser = result.user;
+      setCurrentBookId(null);
+      await loadApiData();
+      renderAllViews();
+      setActiveView("search-view");
+    } catch (err) {
+      signupError.textContent = "登録に失敗しました。入力内容を確認してください。";
+      console.error(err);
     }
   });
 }
 
-// 投稿フォームイベント
 function setupFormHandlers() {
   const form = qs<HTMLFormElement>("#log-form");
   const progressInput = qs<HTMLInputElement>("#progress");
   const contentInput = qs<HTMLTextAreaElement>("#content");
+  const visibilityInput = qs<HTMLSelectElement>("#visibility");
+  const errorEl = qs<HTMLDivElement>("#error");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const currentUser = await getCurrentUser();
     if (!currentUser) {
-      alert("先にユーザーを選択してください。");
+      alert("先にログインしてください");
       return;
     }
-    const progressVal = Number(progressInput.value);
+    if (!currentUserBook || !getCurrentBookId()) {
+      errorEl.textContent = "本の設定を先に行ってください";
+      return;
+    }
+    const rawProgress = Number(progressInput.value);
+    const mode = currentUserBook?.reading_mode || "percent";
+    const totalPages = currentUserBook?.total_pages_user || 0;
+    let progressVal = rawProgress;
+
+    if (mode === "pages") {
+      if (!totalPages || totalPages <= 0) {
+        errorEl.textContent = "ページ数を先に設定してください";
+        return;
+      }
+      progressVal = Math.floor((rawProgress / totalPages) * 100);
+    }
+
     const contentVal = contentInput.value;
-    if (!validate(progressVal, contentVal)) return;
+    if (!Number.isInteger(progressVal) || progressVal < 0 || progressVal > 100) {
+      errorEl.textContent = "進度は0〜100の整数で入力してください";
+      return;
+    }
+    errorEl.textContent = "";
     try {
-      await addLog(progressVal, contentVal.trim(), currentUser.id);
-      contentInput.value = ""; // 感想のみリセット
-      await refreshTimeline();
+      await apiPost<ApiReadingLog>(
+        "/api/reading-logs",
+        {
+          book_id: getCurrentBookId(),
+          progress_percent: progressVal,
+          content: contentVal.trim(),
+          visibility: visibilityInput.value as "public" | "private",
+        },
+        true,
+      );
+      contentInput.value = "";
+      await loadApiData();
+      renderAllViews();
     } catch (err) {
-      alert("保存中にエラーが発生しました。");
+      alert("保存中にエラーが発生しました");
+      console.error(err);
     }
   });
 }
 
-// ユーザー切り替え後に最新進度を反映
-async function updateProgressInput() {
+function updateProgressInput() {
   const progressInput = qs<HTMLInputElement>("#progress");
-  const currentUser = await getCurrentUser();
   if (!currentUser) {
     progressInput.value = "";
     return;
   }
-  const latest = await getLatestProgressForUser(currentUser.id);
-  progressInput.value = latest !== null && latest !== undefined ? String(latest) : "";
+  const current = getCurrentBookId();
+  const entry = current
+    ? apiUserBooks.find((ub) => ub.user_id === currentUser.id && ub.book_id === current)
+    : undefined;
+  currentUserBook = entry || null;
+  if (entry) {
+    if (entry.reading_mode === "pages") {
+      const pages = Math.round((entry.total_pages_user * entry.latest_progress_percent) / 100);
+      progressInput.value = String(pages);
+    } else {
+      progressInput.value = String(entry.latest_progress_percent);
+    }
+  } else {
+    progressInput.value = "";
+  }
+  const submitBtn = document.querySelector<HTMLButtonElement>("#log-form button[type='submit']");
+  if (submitBtn) submitBtn.disabled = !currentUserBook;
+  renderBookSettings();
 }
 
-// タイムラインを最新状態で描画
-async function refreshTimeline() {
-  const currentUser = await getCurrentUser();
-  const users = await getAllUsers();
-  renderUserArea(currentUser, users);
-  if (!currentUser) {
-    renderTimeline([], null, null);
-    return;
-  }
-  const logs = await getAllLogs();
-  const latest = await getLatestProgressForUser(currentUser.id);
-  renderTimeline(logs, currentUser, latest);
-  await updateProgressInput();
-}
-
-// 初期化
-document.addEventListener("DOMContentLoaded", async () => {
-  try {
-    await openDatabase();
-  } catch (err) {
-    alert("IndexedDB の初期化に失敗しました。ブラウザ設定をご確認ください。");
-    return;
-  }
-
-  const logs = await getAllLogs();
-  let users = await getAllUsers();
-  let currentUser = await getCurrentUser();
-
-  // 既存ログがあるのにユーザーがいない場合はデフォルトユーザーを作成して紐づけ
-  if (users.length === 0 && logs.length > 0) {
-    const defaultId = await createUser("デフォルトユーザー");
-    await migrateExistingLogs(defaultId);
-    users = await getAllUsers();
-    currentUser = await getCurrentUser();
-    if (!currentUser) {
-      const created = users.find((u) => u.id === defaultId) || null;
-      if (created) {
-        setCurrentUser(created.id);
-        currentUser = created;
-      }
+async function restoreSession() {
+  const token = getAuthToken();
+  if (token) {
+    try {
+      const me = await apiGet<ApiUser>("/api/auth/me", true);
+      currentUser = me;
+      return;
+    } catch (err) {
+      console.warn("token invalid, clearing", err);
+      setAuthToken(null);
+      currentUser = null;
     }
   }
+  try {
+    const result = await apiPost<{ token: string; user: ApiUser }>("/api/auth/login", {
+      userId: DEMO_USER_ID,
+      password: DEMO_PASSWORD,
+    });
+    setAuthToken(result.token);
+    currentUser = result.user;
+  } catch (err) {
+    console.error("auto demo login failed", err);
+    currentUser = null;
+  }
+}
 
-  // ユーザーがまだいない場合はモーダルを強制表示
-  if (users.length === 0) {
-    setupUserModalHandlers();
-    setupFormHandlers();
-    showUserModal(true);
-    await rebuildUserList();
+async function loadApiData() {
+  await restoreSession();
+  apiUsers = await apiGet<ApiUser[]>("/api/users");
+  apiBooks = await apiGet<ApiBook[]>("/api/books");
+  if (!currentBookId) {
+    const stored = Number(localStorage.getItem(CURRENT_BOOK_STORAGE_KEY) || "");
+    if (!Number.isNaN(stored) && stored > 0) currentBookId = stored;
+  }
+  if (!currentUser && apiUsers.length > 0) {
+    currentUser = apiUsers[0];
+  }
+  if (currentUser) {
+    apiUserBooks = await apiGet<ApiUserBook[]>(`/api/user-books?userId=${currentUser.id}`);
+    const currentBook = getCurrentBookId();
+    currentUserBook = currentBook ? apiUserBooks.find((ub) => ub.book_id === currentBook) || null : null;
+    apiReadingLogs = currentBook
+      ? await apiGet<ApiReadingLog[]>(`/api/reading-logs?bookId=${currentBook}&viewerUserId=${currentUser.id}`)
+      : [];
+  } else {
+    apiUserBooks = [];
+    apiReadingLogs = [];
+    currentUserBook = null;
+  }
+  tempReadingMode = null;
+}
+
+function renderBookSettingsHandlers() {
+  const form = qs<HTMLFormElement>("#book-settings-form");
+  const pagesInput = qs<HTMLInputElement>("#total-pages");
+  const modeSelect = qs<HTMLSelectElement>("#reading-mode");
+  const helper = qs<HTMLDivElement>("#settings-helper");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentUser) {
+      helper.textContent = "先にログインしてください";
+      return;
+    }
+    const totalPages = Number(pagesInput.value);
+    const mode = modeSelect.value as "percent" | "pages";
+    if (!Number.isFinite(totalPages) || totalPages <= 0) {
+      helper.textContent = "ページ数を正しく入力してください";
+      return;
+    }
+    if (!getCurrentBookId()) {
+      helper.textContent = "先に本を選んでください";
+      return;
+    }
+    try {
+      if (currentUserBook) {
+        await apiPatch(
+          `/api/user-books/${currentUserBook.id}`,
+          { total_pages_user: totalPages, reading_mode: mode },
+          true,
+        );
+      } else {
+        await apiPost<ApiUserBook>(
+          "/api/user-books",
+          { book_id: getCurrentBookId(), total_pages_user: totalPages, status: "reading", reading_mode: mode },
+          true,
+        );
+      }
+      helper.textContent = "保存しました";
+      await loadApiData();
+      renderAllViews();
+    } catch (err) {
+      helper.textContent = "保存に失敗しました";
+      console.error(err);
+    }
+  });
+
+  modeSelect.addEventListener("change", () => {
+    tempReadingMode = modeSelect.value as "percent" | "pages";
+    renderBookSettings();
+    renderDetailProgress();
+  });
+}
+
+function setupDetailProgressHandlers() {
+  const form = qs<HTMLFormElement>("#book-progress-form");
+  const input = qs<HTMLInputElement>("#detail-progress");
+  const helper = qs<HTMLDivElement>("#detail-progress-helper");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentUser) {
+      helper.textContent = "先にログインしてください";
+      return;
+    }
+    const mode = currentUserBook?.reading_mode || "percent";
+    const total = currentUserBook?.total_pages_user || Number(qs<HTMLInputElement>("#total-pages").value) || 0;
+    const raw = Number(input.value);
+    let percent = raw;
+    if (mode === "pages") {
+      if (!total || total <= 0) {
+        helper.textContent = "先に総ページ数を設定してください";
+        return;
+      }
+      percent = Math.floor((raw / total) * 100);
+    }
+    if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+      helper.textContent = "進捗は0〜100の整数で入力してください";
+      return;
+    }
+    try {
+      if (!currentUserBook) {
+        helper.textContent = "先に本の設定を保存してください";
+        return;
+      }
+      await apiPatch(`/api/user-books/${currentUserBook.id}`, { latest_progress_percent: percent }, true);
+      helper.textContent = "進捗を保存しました";
+      await loadApiData();
+      renderAllViews();
+    } catch (err) {
+      helper.textContent = "進捗の保存に失敗しました";
+      console.error(err);
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await loadApiData();
+  } catch (err) {
+    alert("API への接続に失敗しました。Docker が起動しているか確認してください。");
+    console.error(err);
     return;
   }
 
-  // localStorage にユーザーが無ければ先頭をセット
-  if (!currentUser) {
-    currentUser = users[0];
-    setCurrentUser(currentUser.id);
-  }
+  document.querySelectorAll<HTMLButtonElement>(".nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.view;
+      if (target) setActiveView(target);
+    });
+  });
+  setActiveView("book-page");
 
-  // キャッシュに投入
-  users.forEach((u) => userCache.set(u.id, u.name));
+  const switchBtn = qs<HTMLButtonElement>("#switch-user-btn");
+  switchBtn.addEventListener("click", () => {
+    setActiveView("login-view");
+  });
 
-  // 既存ログのマイグレーション（userId 無しにデフォルトを付与）
-  if (users.length > 0) {
-    await migrateExistingLogs(users[0].id);
-  }
-
-  setupUserModalHandlers();
+  renderSearchResults("");
+  renderAllViews();
+  setupSearchHandlers();
+  setupAuthHandlers();
+  renderBookSettingsHandlers();
+  setupDetailProgressHandlers();
   setupFormHandlers();
-  await rebuildUserList();
-  await refreshTimeline();
 });

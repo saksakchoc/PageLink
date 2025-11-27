@@ -793,8 +793,6 @@ function setupDetailProgressHandlers() {
     });
 }
 document.addEventListener("DOMContentLoaded", async () => {
-    setAuthToken(null);
-    currentUser = null;
     try {
         await loadApiData();
     }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PageLink</title>
+  <title>feReadle</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%232c6e49'/%3E%3Cpath d='M20 20h24v4H20zm0 10h18v4H20zm0 10h12v4H20z' fill='%23f7f2e9'/%3E%3C/svg%3E">
   <style>
     :root {
@@ -56,7 +56,13 @@
       padding: 12px 16px;
       background: var(--cream);
       z-index: 5;
-      justify-content: center;
+      align-items: center;
+    }
+    .nav-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      flex: 1;
     }
     .nav-btn {
       border: 1px solid #d8d2c7;
@@ -70,6 +76,17 @@
     }
     .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
     .nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .top-nav-user {
+      font-weight: 600;
+      color: #3d3a33;
+      margin-left: auto;
+    }
+    @media (max-width: 600px) {
+      .top-nav-user {
+        width: 100%;
+        text-align: right;
+      }
+    }
     .page {
       width: min(92vw, 720px);
       padding: 28px 0 80px;
@@ -257,12 +274,15 @@
 </head>
 <body>
   <nav class="top-nav">
-    <button class="nav-btn" data-view="login-view" type="button">ログイン</button>
-    <button class="nav-btn" data-view="search-view" type="button">本を探す</button>
-    <button class="nav-btn" data-view="book-page" type="button">タイムライン</button>
-    <button class="nav-btn" data-view="my-reading-view" type="button">積読</button>
-    <button class="nav-btn" data-view="my-finished-view" type="button">読了</button>
-    <button class="nav-btn" data-view="profile-view" type="button">プロフィール</button>
+    <div class="nav-buttons">
+      <button class="nav-btn" data-view="login-view" type="button">ログイン</button>
+      <button class="nav-btn" data-view="search-view" type="button">本を探す</button>
+      <button class="nav-btn" data-view="book-page" type="button">タイムライン</button>
+      <button class="nav-btn" data-view="my-reading-view" type="button">積読</button>
+      <button class="nav-btn" data-view="my-finished-view" type="button">読了</button>
+      <button class="nav-btn" data-view="profile-view" type="button">プロフィール</button>
+    </div>
+    <div class="top-nav-user">ログイン中：<span id="nav-user-name" class="user-name">-</span></div>
   </nav>
 
   <main class="page">
@@ -313,7 +333,7 @@
 
     <section id="book-page" class="view">
       <header>
-        <div class="title">PageLink</div>
+        <div class="title">feReadle</div>
         <div id="current-book-subtitle" class="subtitle">いま読んでいる本：なし</div>
       </header>
 

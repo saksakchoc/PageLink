@@ -1,3 +1,4 @@
+"use strict";
 // Reading progress SNS frontend (API first, no IndexedDB persistence)
 const API_BASE = "/api";
 const API_AUTH_TOKEN_KEY = "apiAuthToken";
@@ -97,7 +98,11 @@ async function apiPatch(path, body, withAuth = false) {
 }
 function renderUserArea() {
     const el = qs("#current-user-name");
-    el.textContent = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
+    const navName = document.querySelector("#nav-user-name");
+    const text = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
+    el.textContent = text;
+    if (navName)
+        navName.textContent = text;
 }
 function renderSearchResults(keyword) {
     const list = qs("#search-results");
@@ -125,7 +130,6 @@ function renderSearchResults(keyword) {
         return;
     }
     filtered.forEach((b) => {
-        var _a;
         const card = document.createElement("article");
         card.className = "card";
         const title = document.createElement("div");
@@ -136,14 +140,14 @@ function renderSearchResults(keyword) {
         author.textContent = b.author;
         const meta = document.createElement("div");
         meta.className = "muted";
-        meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${(_a = b.total_pages_isbn) !== null && _a !== void 0 ? _a : "-"}p`;
+        meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${b.total_pages_isbn ?? "-"}p`;
         const actions = document.createElement("div");
         actions.className = "actions";
         actions.style.justifyContent = "flex-start";
         const startBtn = document.createElement("button");
         startBtn.type = "button";
         startBtn.textContent = "積読に入れる";
-        const existing = apiUserBooks.find((ub) => ub.user_id === (currentUser === null || currentUser === void 0 ? void 0 : currentUser.id) && ub.book_id === b.id);
+        const existing = apiUserBooks.find((ub) => ub.user_id === currentUser?.id && ub.book_id === b.id);
         if (existing && (existing.status === "reading" || existing.status === "finished")) {
             startBtn.disabled = true;
             startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
@@ -197,7 +201,6 @@ function renderUserBookList(status, targetElId) {
         return;
     }
     targets.forEach((ub) => {
-        var _a;
         const book = apiBooks.find((b) => b.id === ub.book_id);
         const card = document.createElement("article");
         card.className = "card";
@@ -213,7 +216,7 @@ function renderUserBookList(status, targetElId) {
         top.appendChild(progress);
         const meta = document.createElement("div");
         meta.className = "muted";
-        meta.textContent = `著者: ${(_a = book === null || book === void 0 ? void 0 : book.author) !== null && _a !== void 0 ? _a : "-"} / 総ページ: ${ub.total_pages_user}p`;
+        meta.textContent = `著者: ${book?.author ?? "-"} / 総ページ: ${ub.total_pages_user}p`;
         card.appendChild(top);
         card.appendChild(meta);
         if (status === "reading") {
@@ -344,7 +347,7 @@ function renderApiTimeline() {
     filtered.forEach((log) => {
         const card = document.createElement("article");
         card.className = "card";
-        if (log.user_id === currentUser.id)
+        if (currentUser && log.user_id === currentUser.id)
             card.classList.add("mine");
         const top = document.createElement("div");
         top.className = "card-top";
@@ -384,7 +387,7 @@ function renderBookSettings() {
     const latestLabel = qs("#progress-helper");
     const progressInput = qs("#progress");
     const mode = (tempReadingMode ||
-        (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) ||
+        currentUserBook?.reading_mode ||
         modeSelect.value ||
         "percent");
     modeSelect.value = mode;
@@ -393,7 +396,7 @@ function renderBookSettings() {
     pagesRow.style.display = mode === "pages" ? "grid" : "none";
     progressInput.min = "0";
     if (mode === "pages") {
-        const total = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user;
+        const total = currentUserBook?.total_pages_user;
         progressInput.max = total ? String(total) : "";
         progressInput.placeholder = total ? `0〜${total} ページ` : "ページ数を入力";
     }
@@ -419,8 +422,8 @@ function renderBookSettings() {
 function renderDetailProgress() {
     const input = qs("#detail-progress");
     const helper = qs("#detail-progress-helper");
-    const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-    const total = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user;
+    const mode = currentUserBook?.reading_mode || "percent";
+    const total = currentUserBook?.total_pages_user;
     input.min = "0";
     if (mode === "pages") {
         input.max = total ? String(total) : "";
@@ -450,7 +453,7 @@ function renderCurrentBookSubtitle() {
         return;
     const current = getCurrentBookId();
     const book = current ? apiBooks.find((b) => b.id === current) : null;
-    const progress = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.latest_progress_percent;
+    const progress = currentUserBook?.latest_progress_percent;
     const progressText = typeof progress === "number" && Number.isFinite(progress) ? `（進度: ${progress}%）` : "";
     subtitle.textContent = book ? `いま読んでいる本：${book.title}${progressText}` : "いま読んでいる本：なし";
 }
@@ -467,7 +470,7 @@ function renderBookMeta() {
     author.textContent = book ? `著者: ${book.author}` : "";
     const mode = document.createElement("div");
     mode.className = "muted";
-    mode.textContent = `入力モード: ${(currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) === "pages" ? "ページ" : "パーセンテージ"}`;
+    mode.textContent = `入力モード: ${currentUserBook?.reading_mode === "pages" ? "ページ" : "パーセンテージ"}`;
     const pages = document.createElement("div");
     pages.className = "muted";
     pages.textContent = currentUserBook ? `総ページ: ${currentUserBook.total_pages_user}p` : "総ページ未設定";
@@ -572,8 +575,8 @@ function setupFormHandlers() {
             return;
         }
         const rawProgress = Number(progressInput.value);
-        const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-        const totalPages = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user) || 0;
+        const mode = currentUserBook?.reading_mode || "percent";
+        const totalPages = currentUserBook?.total_pages_user || 0;
         let progressVal = rawProgress;
         if (mode === "pages") {
             if (!totalPages || totalPages <= 0) {
@@ -620,13 +623,14 @@ function setupFormHandlers() {
 }
 function updateProgressInput() {
     const progressInput = qs("#progress");
-    if (!currentUser) {
+    const user = currentUser;
+    if (!user) {
         progressInput.value = "";
         return;
     }
     const current = getCurrentBookId();
     const entry = current
-        ? apiUserBooks.find((ub) => ub.user_id === currentUser.id && ub.book_id === current)
+        ? apiUserBooks.find((ub) => ub.user_id === user.id && ub.book_id === current)
         : undefined;
     currentUserBook = entry || null;
     if (entry) {
@@ -734,7 +738,7 @@ function setupDetailProgressHandlers() {
     const input = qs("#detail-progress");
     const helper = qs("#detail-progress-helper");
     const finishBtn = document.querySelector("#finish-btn");
-    finishBtn === null || finishBtn === void 0 ? void 0 : finishBtn.addEventListener("click", async () => {
+    finishBtn?.addEventListener("click", async () => {
         if (!currentUser) {
             alert("先にログインしてください");
             return;
@@ -761,8 +765,8 @@ function setupDetailProgressHandlers() {
             helper.textContent = "先にログインしてください";
             return;
         }
-        const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-        const total = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user) || Number(qs("#total-pages").value) || 0;
+        const mode = currentUserBook?.reading_mode || "percent";
+        const total = currentUserBook?.total_pages_user || Number(qs("#total-pages").value) || 0;
         const raw = Number(input.value);
         let percent = raw;
         if (mode === "pages") {

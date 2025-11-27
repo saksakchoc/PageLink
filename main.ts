@@ -137,7 +137,10 @@ async function apiPatch<T>(path: string, body: Record<string, unknown>, withAuth
 
 function renderUserArea() {
   const el = qs<HTMLSpanElement>("#current-user-name");
-  el.textContent = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
+  const navName = document.querySelector<HTMLSpanElement>("#nav-user-name");
+  const text = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
+  el.textContent = text;
+  if (navName) navName.textContent = text;
 }
 
 function renderSearchResults(keyword: string) {
@@ -411,7 +414,7 @@ function renderApiTimeline() {
   filtered.forEach((log) => {
     const card = document.createElement("article");
     card.className = "card";
-    if (log.user_id === currentUser.id) card.classList.add("mine");
+    if (currentUser && log.user_id === currentUser.id) card.classList.add("mine");
 
     const top = document.createElement("div");
     top.className = "card-top";
@@ -713,13 +716,14 @@ function setupFormHandlers() {
 
 function updateProgressInput() {
   const progressInput = qs<HTMLInputElement>("#progress");
-  if (!currentUser) {
+  const user = currentUser;
+  if (!user) {
     progressInput.value = "";
     return;
   }
   const current = getCurrentBookId();
   const entry = current
-    ? apiUserBooks.find((ub) => ub.user_id === currentUser.id && ub.book_id === current)
+    ? apiUserBooks.find((ub) => ub.user_id === user.id && ub.book_id === current)
     : undefined;
   currentUserBook = entry || null;
   if (entry) {

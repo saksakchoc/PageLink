@@ -1,0 +1,27 @@
+name: Deploy to ConoHa
+
+on:
+  push:
+    branches:
+      - main    # デプロイ対象ブランチ
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            cd /opt/pagering
+            git pull
+            docker compose build
+            docker compose up -d

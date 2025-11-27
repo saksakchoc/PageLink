@@ -130,6 +130,8 @@ insertBook.run(104, "\u7363\u306e\u594f\u8005 IV \u5b8c\u7d50\u7de8", "\u4e0a\u6
 insertBook.run(105, "\u7363\u306e\u594f\u8005 \u5916\u4f1d \u5239\u90a3", "\u4e0a\u6a4b\u83dc\u7a42\u5b50", "ja", 240);
 
 
+const tokens = new Map(); // token -> userId
+
 const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo");
 if (demoUser) {
   db.prepare(

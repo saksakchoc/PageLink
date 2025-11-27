@@ -1,5 +1,8 @@
 // Reading progress SNS frontend (API first, no IndexedDB persistence)
 
+type ReadingStatus = "reading" | "finished" | "on_hold" | "dropped";
+type ReadingMode = "percent" | "pages";
+
 interface ApiUser {
   id: number;
   displayName: string;
@@ -19,9 +22,9 @@ interface ApiUserBook {
   user_id: number;
   book_id: number;
   total_pages_user: number;
-  status: "reading" | "finished" | "on_hold" | "dropped";
+  status: ReadingStatus;
   latest_progress_percent: number;
-  reading_mode?: "percent" | "pages";
+  reading_mode?: ReadingMode;
 }
 
 interface ApiReadingLog {
@@ -37,6 +40,8 @@ interface ApiReadingLog {
 const API_BASE = "http://localhost:3000";
 const API_AUTH_TOKEN_KEY = "apiAuthToken";
 const CURRENT_BOOK_STORAGE_KEY = "currentBookId";
+const DEMO_USER_ID = "demo";
+const DEMO_PASSWORD = "password";
 
 let apiUsers: ApiUser[] = [];
 let apiBooks: ApiBook[] = [];
@@ -45,9 +50,7 @@ let apiReadingLogs: ApiReadingLog[] = [];
 let currentUser: ApiUser | null = null;
 let currentUserBook: ApiUserBook | null = null;
 let currentBookId: number | null = null;
-let tempReadingMode: "percent" | "pages" | null = null;
-const DEMO_USER_ID = "demo";
-const DEMO_PASSWORD = "password";
+let tempReadingMode: ReadingMode | null = null;
 
 function qs<T extends HTMLElement>(selector: string): T {
   const el = document.querySelector(selector);
@@ -180,7 +183,7 @@ function renderSearchResults(keyword: string) {
     actions.style.justifyContent = "flex-start";
     const startBtn = document.createElement("button");
     startBtn.type = "button";
-    startBtn.textContent = "この本を読み始める";
+    startBtn.textContent = "積読に入れる";
     startBtn.addEventListener("click", async () => {
       if (!currentUser) {
         alert("ログインしてください");
@@ -202,7 +205,6 @@ function renderSearchResults(keyword: string) {
         }
         await loadApiData();
         renderAllViews();
-        setActiveView("my-reading-view");
       } catch (err) {
         alert("読書開始に失敗しました");
         console.error(err);
@@ -225,7 +227,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
   if (targets.length === 0) {
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = status === "reading" ? "読書中の本がありません" : "読み終わった本がありません";
+    empty.textContent = status === "reading" ? "積読の本がありません" : "読み終わった本がありません";
     container.appendChild(empty);
     return;
   }
@@ -248,6 +250,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
     meta.textContent = `著者: ${book?.author ?? "-"} / 総ページ: ${ub.total_pages_user}p`;
     card.appendChild(top);
     card.appendChild(meta);
+
     if (status === "reading") {
       const actions = document.createElement("div");
       actions.className = "actions";
@@ -261,19 +264,49 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         renderAllViews();
         setActiveView("book-detail-view");
       });
-      const setCurrentBtn = document.createElement("button");
-      setCurrentBtn.type = "button";
-      setCurrentBtn.textContent = "今読んでいる本に設定";
-      setCurrentBtn.addEventListener("click", async () => {
-        setCurrentBookId(ub.book_id);
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      const isCurrent = getCurrentBookId() === ub.book_id;
+      toggleBtn.textContent = isCurrent ? "今読んでいる本を解除" : "今読んでいる本に登録";
+      toggleBtn.addEventListener("click", async () => {
+        const isCurrentNow = getCurrentBookId() === ub.book_id;
+        setCurrentBookId(isCurrentNow ? null : ub.book_id);
+        await apiPatch(`/api/user-books/${ub.id}`, { status: "reading" }, true);
         await loadApiData();
         renderAllViews();
-        setActiveView("book-page");
       });
       actions.appendChild(detailBtn);
-      actions.appendChild(setCurrentBtn);
+      actions.appendChild(toggleBtn);
       card.appendChild(actions);
     }
+
+    if (status === "finished") {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.style.justifyContent = "flex-start";
+      const backBtn = document.createElement("button");
+      backBtn.type = "button";
+      backBtn.textContent = "積読に戻す";
+      backBtn.addEventListener("click", async () => {
+        try {
+          await apiPatch(
+            `/api/user-books/${ub.id}`,
+            { status: "reading", latest_progress_percent: 0 },
+            true,
+          );
+          setCurrentBookId(ub.book_id);
+          await loadApiData();
+          renderAllViews();
+          setActiveView("my-reading-view");
+        } catch (err) {
+          alert("積読に戻す処理でエラーが発生しました");
+          console.error(err);
+        }
+      });
+      actions.appendChild(backBtn);
+      card.appendChild(actions);
+    }
+
     container.appendChild(card);
   });
 }
@@ -389,8 +422,8 @@ function renderBookSettings() {
 
   const mode = (tempReadingMode ||
     currentUserBook?.reading_mode ||
-    (modeSelect.value as "percent" | "pages" | "") ||
-    "percent") as "percent" | "pages";
+    (modeSelect.value as ReadingMode | "") ||
+    "percent") as ReadingMode;
   modeSelect.value = mode;
   pagesInput.value = currentUserBook ? String(currentUserBook.total_pages_user) : "";
   pagesInput.disabled = mode !== "pages";
@@ -592,6 +625,20 @@ function setupFormHandlers() {
       errorEl.textContent = "進度は0〜100の整数で入力してください";
       return;
     }
+
+    if (progressVal === 100) {
+      const ok = confirm("進捗が100%です。読了ステータスに変更しますか？");
+      if (ok) {
+        try {
+          await apiPatch(`/api/user-books/${currentUserBook.id}`, { status: "finished", latest_progress_percent: 100 }, true);
+        } catch (err) {
+          alert("読了への更新に失敗しました");
+          console.error(err);
+          return;
+        }
+      }
+    }
+
     errorEl.textContent = "";
     try {
       await apiPost<ApiReadingLog>(
@@ -704,7 +751,7 @@ function renderBookSettingsHandlers() {
       return;
     }
     const totalPages = Number(pagesInput.value);
-    const mode = modeSelect.value as "percent" | "pages";
+    const mode = modeSelect.value as ReadingMode;
     if (!Number.isFinite(totalPages) || totalPages <= 0) {
       helper.textContent = "ページ数を正しく入力してください";
       return;
@@ -737,7 +784,7 @@ function renderBookSettingsHandlers() {
   });
 
   modeSelect.addEventListener("change", () => {
-    tempReadingMode = modeSelect.value as "percent" | "pages";
+    tempReadingMode = modeSelect.value as ReadingMode;
     renderBookSettings();
     renderDetailProgress();
   });

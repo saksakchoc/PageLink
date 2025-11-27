@@ -40,6 +40,7 @@ interface ApiReadingLog {
 const API_BASE = "http://localhost:3000";
 const API_AUTH_TOKEN_KEY = "apiAuthToken";
 const CURRENT_BOOK_STORAGE_KEY = "currentBookId";
+const LAST_VIEW_KEY = "lastViewId";
 const DEMO_USER_ID = "demo";
 const DEMO_PASSWORD = "password";
 
@@ -74,6 +75,7 @@ function setActiveView(viewId: string) {
   document.querySelectorAll<HTMLButtonElement>(".nav-btn").forEach((btn) =>
     btn.classList.toggle("active", btn.dataset.view === viewId),
   );
+  localStorage.setItem(LAST_VIEW_KEY, viewId);
 }
 
 function getAuthToken(): string | null {
@@ -212,6 +214,7 @@ function renderSearchResults(keyword: string) {
           }
           await loadApiData();
           renderAllViews();
+          location.reload(); // 要望: 積読に入れる押下後ページ再読み込み
         } catch (err) {
           alert("読書開始に失敗しました");
           console.error(err);
@@ -228,9 +231,7 @@ function renderSearchResults(keyword: string) {
   });
 }
 
-function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
-  // 今読んでいる本をセット
-  renderCurrentBookSubtitle();
+function renderUserBookList(status: ReadingStatus, targetElId: string) {
   const container = qs<HTMLDivElement>(`#${targetElId}`);
   container.innerHTML = "";
   const targets = apiUserBooks.filter((ub) => ub.status === status);
@@ -272,7 +273,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
 
       const detailBtn = document.createElement("button");
       detailBtn.type = "button";
-      detailBtn.textContent = "オプション";
+      detailBtn.textContent = "この本の詳細";
       detailBtn.addEventListener("click", async () => {
         setCurrentBookId(ub.book_id);
         await loadApiData();
@@ -284,11 +285,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
       toggleBtn.type = "button";
       const isCurrent = getCurrentBookId() === ub.book_id;
       toggleBtn.textContent = isCurrent ? "今読んでいる本を解除" : "今読んでいる本に登録";
-      if (isCurrent) {
-        toggleBtn.style.background = "#ea580c"; // 解除はオレンジ
-      } else {
-        toggleBtn.style.background = ""; // 登録はデフォルトの緑
-      }
+      toggleBtn.style.background = isCurrent ? "#ea580c" : ""; // 解除オレンジ、登録は緑
       toggleBtn.addEventListener("click", async () => {
         const isCurrentNow = getCurrentBookId() === ub.book_id;
         setCurrentBookId(isCurrentNow ? null : ub.book_id);
@@ -296,13 +293,26 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         await loadApiData();
         renderAllViews();
       });
-      actions.appendChild(detailBtn);
-      actions.appendChild(toggleBtn);
 
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.textContent = "積読から外す";
+      const finishBtn = document.createElement("button");
+      finishBtn.type = "button";
+      finishBtn.textContent = "読了にする";
+      finishBtn.addEventListener("click", async () => {
+        try {
+          await apiPatch(`/api/user-books/${ub.id}`, { status: "finished", latest_progress_percent: 100 }, true);
+          if (getCurrentBookId() === ub.book_id) setCurrentBookId(ub.book_id);
+          await loadApiData();
+          renderAllViews();
+        } catch (err) {
+          alert("読了への変更でエラーが発生しました");
+          console.error(err);
+        }
+      });
+
       if (getCurrentBookId() !== ub.book_id) {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.textContent = "積読から外す";
         removeBtn.addEventListener("click", async () => {
           try {
             await apiPatch(
@@ -320,6 +330,9 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         actions.appendChild(removeBtn);
       }
 
+      actions.appendChild(detailBtn);
+      actions.appendChild(toggleBtn);
+      actions.appendChild(finishBtn);
       card.appendChild(actions);
     }
 
@@ -605,7 +618,8 @@ function setupAuthHandlers() {
       currentUser = result.user;
       await loadApiData();
       renderAllViews();
-      setActiveView("book-page");
+      const last = localStorage.getItem(LAST_VIEW_KEY);
+      setActiveView(last || "book-page");
     } catch (err) {
       errorEl.textContent = "ログインに失敗しました。ユーザーIDとパスワードを確認してください。";
       console.error(err);
@@ -889,7 +903,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (target) setActiveView(target);
     });
   });
-  setActiveView("book-page");
+  const lastView = localStorage.getItem(LAST_VIEW_KEY) || "book-page";
+  setActiveView(lastView);
 
   const switchBtn = qs<HTMLButtonElement>("#switch-user-btn");
   switchBtn.addEventListener("click", () => {

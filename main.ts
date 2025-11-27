@@ -184,32 +184,37 @@ function renderSearchResults(keyword: string) {
     const startBtn = document.createElement("button");
     startBtn.type = "button";
     startBtn.textContent = "積読に入れる";
-    startBtn.addEventListener("click", async () => {
-      if (!currentUser) {
-        alert("ログインしてください");
-        return;
-      }
-      const pages = b.total_pages_isbn || 100;
-      try {
-        const existing = apiUserBooks.find((ub) => ub.user_id === currentUser!.id && ub.book_id === b.id);
-        if (existing) {
-          await apiPatch(`/api/user-books/${existing.id}`, { status: "reading" }, true);
-          setCurrentBookId(b.id);
-        } else {
-          await apiPost<ApiUserBook>(
-            "/api/user-books",
-            { book_id: b.id, total_pages_user: pages, status: "reading", reading_mode: "percent" },
-            true,
-          );
-          setCurrentBookId(b.id);
+    const existing = apiUserBooks.find((ub) => ub.user_id === currentUser?.id && ub.book_id === b.id);
+    if (existing && (existing.status === "reading" || existing.status === "finished")) {
+      startBtn.disabled = true;
+      startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
+    } else {
+      startBtn.addEventListener("click", async () => {
+        if (!currentUser) {
+          alert("ログインしてください");
+          return;
         }
-        await loadApiData();
-        renderAllViews();
-      } catch (err) {
-        alert("読書開始に失敗しました");
-        console.error(err);
-      }
-    });
+        const pages = b.total_pages_isbn || 100;
+        try {
+          if (existing) {
+            await apiPatch(`/api/user-books/${existing.id}`, { status: "reading" }, true);
+            setCurrentBookId(b.id);
+          } else {
+            await apiPost<ApiUserBook>(
+              "/api/user-books",
+              { book_id: b.id, total_pages_user: pages, status: "reading", reading_mode: "percent" },
+              true,
+            );
+            setCurrentBookId(b.id);
+          }
+          await loadApiData();
+          renderAllViews();
+        } catch (err) {
+          alert("読書開始に失敗しました");
+          console.error(err);
+        }
+      });
+    }
     actions.appendChild(startBtn);
 
     card.appendChild(title);
@@ -231,10 +236,12 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
     container.appendChild(empty);
     return;
   }
+
   targets.forEach((ub) => {
     const book = apiBooks.find((b) => b.id === ub.book_id);
     const card = document.createElement("article");
     card.className = "card";
+
     const top = document.createElement("div");
     top.className = "card-top";
     const title = document.createElement("div");
@@ -245,9 +252,11 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
     progress.textContent = `${ub.latest_progress_percent}%`;
     top.appendChild(title);
     top.appendChild(progress);
+
     const meta = document.createElement("div");
     meta.className = "muted";
     meta.textContent = `著者: ${book?.author ?? "-"} / 総ページ: ${ub.total_pages_user}p`;
+
     card.appendChild(top);
     card.appendChild(meta);
 
@@ -255,6 +264,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
       const actions = document.createElement("div");
       actions.className = "actions";
       actions.style.justifyContent = "flex-start";
+
       const detailBtn = document.createElement("button");
       detailBtn.type = "button";
       detailBtn.textContent = "この本の詳細";
@@ -264,10 +274,16 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         renderAllViews();
         setActiveView("book-detail-view");
       });
+
       const toggleBtn = document.createElement("button");
       toggleBtn.type = "button";
       const isCurrent = getCurrentBookId() === ub.book_id;
       toggleBtn.textContent = isCurrent ? "今読んでいる本を解除" : "今読んでいる本に登録";
+      if (!isCurrent) {
+        toggleBtn.style.background = "#ea580c";
+      } else {
+        toggleBtn.style.background = "";
+      }
       toggleBtn.addEventListener("click", async () => {
         const isCurrentNow = getCurrentBookId() === ub.book_id;
         setCurrentBookId(isCurrentNow ? null : ub.book_id);
@@ -275,8 +291,25 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         await loadApiData();
         renderAllViews();
       });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "積読から外す";
+      removeBtn.addEventListener("click", async () => {
+        try {
+          await apiPatch(`/api/user-books/${ub.id}`, { status: "on_hold", latest_progress_percent: 0 }, true);
+          if (getCurrentBookId() === ub.book_id) setCurrentBookId(null);
+          await loadApiData();
+          renderAllViews();
+        } catch (err) {
+          alert("積読から外す処理でエラーが発生しました");
+          console.error(err);
+        }
+      });
+
       actions.appendChild(detailBtn);
       actions.appendChild(toggleBtn);
+      actions.appendChild(removeBtn);
       card.appendChild(actions);
     }
 

@@ -271,46 +271,16 @@ function renderUserBookList(status: ReadingStatus, targetElId: string) {
       actions.className = "actions";
       actions.style.justifyContent = "flex-start";
 
-      const optionsWrapper = document.createElement("div");
-      optionsWrapper.className = "options-wrapper";
+      // オプション: 詳細・設定ページへ遷移
       const optionsBtn = document.createElement("button");
       optionsBtn.type = "button";
       optionsBtn.textContent = "オプション";
-      const optionsMenu = document.createElement("div");
-      optionsMenu.className = "options-menu";
-      const detailOpt = document.createElement("button");
-      detailOpt.type = "button";
-      detailOpt.textContent = "この本の詳細";
-      detailOpt.addEventListener("click", async () => {
+      optionsBtn.addEventListener("click", async () => {
         setCurrentBookId(ub.book_id);
         await loadApiData();
         renderAllViews();
         setActiveView("book-detail-view");
-        optionsMenu.classList.remove("show");
       });
-      const finishOpt = document.createElement("button");
-      finishOpt.type = "button";
-      finishOpt.textContent = "読了にする";
-      finishOpt.addEventListener("click", async () => {
-        try {
-          await apiPatch(`/api/user-books/${ub.id}`, { status: "finished" }, true);
-          await loadApiData();
-          renderAllViews();
-          setActiveView("my-finished-view");
-        } catch (err) {
-          alert("読了への変更でエラーが発生しました");
-          console.error(err);
-        } finally {
-          optionsMenu.classList.remove("show");
-        }
-      });
-      optionsMenu.appendChild(detailOpt);
-      optionsMenu.appendChild(finishOpt);
-      optionsBtn.addEventListener("click", () => {
-        optionsMenu.classList.toggle("show");
-      });
-      optionsWrapper.appendChild(optionsBtn);
-      optionsWrapper.appendChild(optionsMenu);
 
       const toggleBtn = document.createElement("button");
       toggleBtn.type = "button";
@@ -324,6 +294,9 @@ function renderUserBookList(status: ReadingStatus, targetElId: string) {
         await loadApiData();
         renderAllViews();
       });
+
+      actions.appendChild(optionsBtn);
+      actions.appendChild(toggleBtn);
 
       if (getCurrentBookId() !== ub.book_id) {
         const removeBtn = document.createElement("button");
@@ -343,11 +316,9 @@ function renderUserBookList(status: ReadingStatus, targetElId: string) {
             console.error(err);
           }
         });
-        actions.appendChild(removeBtn); // 右端に配置されるよう最後に追加
+        actions.appendChild(removeBtn); // 最後に追加して右寄せ
       }
 
-      actions.appendChild(optionsWrapper);
-      actions.appendChild(toggleBtn);
       card.appendChild(actions);
     }
 
@@ -866,6 +837,29 @@ function setupDetailProgressHandlers() {
   const form = qs<HTMLFormElement>("#book-progress-form");
   const input = qs<HTMLInputElement>("#detail-progress");
   const helper = qs<HTMLDivElement>("#detail-progress-helper");
+  const finishBtn = document.querySelector<HTMLButtonElement>("#finish-btn");
+
+  finishBtn?.addEventListener("click", async () => {
+    if (!currentUser) {
+      alert("先にログインしてください");
+      return;
+    }
+    if (!currentUserBook) {
+      helper.textContent = "先に本の設定を保存してください";
+      return;
+    }
+    try {
+      await apiPatch(`/api/user-books/${currentUserBook.id}`, { status: "finished" }, true);
+      helper.textContent = "読了に変更しました";
+      await loadApiData();
+      renderAllViews();
+      setActiveView("my-finished-view");
+    } catch (err) {
+      helper.textContent = "読了への変更に失敗しました";
+      console.error(err);
+    }
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!currentUser) {

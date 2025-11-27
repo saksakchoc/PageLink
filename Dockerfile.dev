@@ -1,0 +1,23 @@
+# Development container for ShelfFeed (frontend + API)
+FROM node:18-bullseye
+
+# Install useful tooling
+RUN apt-get update && \
+    apt-get install -y git bash curl vim && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Install root deps (frontend)
+COPY package.json package-lock.json ./ 
+RUN npm install
+
+# Install API deps
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm install
+
+# Copy source (bind mounts will typically override these)
+COPY . .
+
+# Default shell; start whatever you need in the container (e.g. npm run dev)
+CMD ["/bin/bash"]

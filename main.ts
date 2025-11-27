@@ -41,8 +41,6 @@ const API_BASE = "http://localhost:3000";
 const API_AUTH_TOKEN_KEY = "apiAuthToken";
 const CURRENT_BOOK_STORAGE_KEY = "currentBookId";
 const LAST_VIEW_KEY = "lastViewId";
-const DEMO_USER_ID = "demo";
-const DEMO_PASSWORD = "password";
 
 let apiUsers: ApiUser[] = [];
 let apiBooks: ApiBook[] = [];
@@ -560,6 +558,15 @@ function renderBookMeta() {
   meta.appendChild(pages);
 }
 
+function updateNavVisibility() {
+  const loggedIn = Boolean(getAuthToken());
+  document.querySelectorAll<HTMLButtonElement>(".nav-btn").forEach((btn) => {
+    const isLoginBtn = btn.dataset.view === "login-view";
+    const shouldShow = loggedIn ? !isLoginBtn : isLoginBtn;
+    btn.style.display = shouldShow ? "" : "none";
+  });
+}
+
 function renderAllViews() {
   renderUserArea();
   renderUserBookList("reading", "reading-list");
@@ -570,6 +577,7 @@ function renderAllViews() {
   renderCurrentBookSubtitle();
   renderBookMeta();
   renderDetailProgress();
+  updateNavVisibility();
 }
 
 function setupSearchHandlers() {
@@ -604,8 +612,7 @@ function setupAuthHandlers() {
       currentUser = result.user;
       await loadApiData();
       renderAllViews();
-      const last = localStorage.getItem(LAST_VIEW_KEY);
-      setActiveView(last || "book-page");
+      setActiveView("book-page");
     } catch (err) {
       errorEl.textContent = "ログインに失敗しました。ユーザーIDとパスワードを確認してください。";
       console.error(err);
@@ -743,17 +750,7 @@ async function restoreSession() {
       currentUser = null;
     }
   }
-  try {
-    const result = await apiPost<{ token: string; user: ApiUser }>("/api/auth/login", {
-      userId: DEMO_USER_ID,
-      password: DEMO_PASSWORD,
-    });
-    setAuthToken(result.token);
-    currentUser = result.user;
-  } catch (err) {
-    console.error("auto demo login failed", err);
-    currentUser = null;
-  }
+  currentUser = null;
 }
 
 async function loadApiData() {
@@ -763,9 +760,6 @@ async function loadApiData() {
   if (!currentBookId) {
     const stored = Number(localStorage.getItem(CURRENT_BOOK_STORAGE_KEY) || "");
     if (!Number.isNaN(stored) && stored > 0) currentBookId = stored;
-  }
-  if (!currentUser && apiUsers.length > 0) {
-    currentUser = apiUsers[0];
   }
   if (currentUser) {
     apiUserBooks = await apiGet<ApiUserBook[]>(`/api/user-books?userId=${currentUser.id}`);
@@ -912,8 +906,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (target) setActiveView(target);
     });
   });
-  const lastView = localStorage.getItem(LAST_VIEW_KEY) || "book-page";
+  const hasSession = Boolean(getAuthToken());
+  const lastView = hasSession ? localStorage.getItem(LAST_VIEW_KEY) || "book-page" : "login-view";
   setActiveView(lastView);
+  if (!hasSession) updateNavVisibility();
 
   const switchBtn = qs<HTMLButtonElement>("#switch-user-btn");
   switchBtn.addEventListener("click", () => {

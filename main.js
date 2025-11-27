@@ -125,7 +125,6 @@ function renderSearchResults(keyword) {
         return;
     }
     filtered.forEach((b) => {
-        var _a;
         const card = document.createElement("article");
         card.className = "card";
         const title = document.createElement("div");
@@ -136,17 +135,20 @@ function renderSearchResults(keyword) {
         author.textContent = b.author;
         const meta = document.createElement("div");
         meta.className = "muted";
-        meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${(_a = b.total_pages_isbn) !== null && _a !== void 0 ? _a : "-"}p`;
+        meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${b.total_pages_isbn ?? "-"}p`;
         const actions = document.createElement("div");
         actions.className = "actions";
         actions.style.justifyContent = "flex-start";
         const startBtn = document.createElement("button");
         startBtn.type = "button";
         startBtn.textContent = "積読に入れる";
-        const existing = apiUserBooks.find((ub) => ub.user_id === (currentUser === null || currentUser === void 0 ? void 0 : currentUser.id) && ub.book_id === b.id);
+        const existing = apiUserBooks.find((ub) => ub.user_id === currentUser?.id && ub.book_id === b.id);
         if (existing && (existing.status === "reading" || existing.status === "finished")) {
             startBtn.disabled = true;
             startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
+            startBtn.style.background = "#d1d5db";
+            startBtn.style.color = "#555";
+            startBtn.style.cursor = "not-allowed";
         }
         else {
             startBtn.addEventListener("click", async () => {
@@ -182,6 +184,8 @@ function renderSearchResults(keyword) {
     });
 }
 function renderUserBookList(status, targetElId) {
+    // 今読んでいる本をセット
+    renderCurrentBookSubtitle();
     const container = qs(`#${targetElId}`);
     container.innerHTML = "";
     const targets = apiUserBooks.filter((ub) => ub.status === status);
@@ -193,7 +197,6 @@ function renderUserBookList(status, targetElId) {
         return;
     }
     targets.forEach((ub) => {
-        var _a;
         const book = apiBooks.find((b) => b.id === ub.book_id);
         const card = document.createElement("article");
         card.className = "card";
@@ -209,7 +212,7 @@ function renderUserBookList(status, targetElId) {
         top.appendChild(progress);
         const meta = document.createElement("div");
         meta.className = "muted";
-        meta.textContent = `著者: ${(_a = book === null || book === void 0 ? void 0 : book.author) !== null && _a !== void 0 ? _a : "-"} / 総ページ: ${ub.total_pages_user}p`;
+        meta.textContent = `著者: ${book?.author ?? "-"} / 総ページ: ${ub.total_pages_user}p`;
         card.appendChild(top);
         card.appendChild(meta);
         if (status === "reading") {
@@ -218,7 +221,7 @@ function renderUserBookList(status, targetElId) {
             actions.style.justifyContent = "flex-start";
             const detailBtn = document.createElement("button");
             detailBtn.type = "button";
-            detailBtn.textContent = "この本の詳細";
+            detailBtn.textContent = "オプション";
             detailBtn.addEventListener("click", async () => {
                 setCurrentBookId(ub.book_id);
                 await loadApiData();
@@ -229,11 +232,11 @@ function renderUserBookList(status, targetElId) {
             toggleBtn.type = "button";
             const isCurrent = getCurrentBookId() === ub.book_id;
             toggleBtn.textContent = isCurrent ? "今読んでいる本を解除" : "今読んでいる本に登録";
-            if (!isCurrent) {
-                toggleBtn.style.background = "#ea580c";
+            if (isCurrent) {
+                toggleBtn.style.background = "#ea580c"; // 解除はオレンジ
             }
             else {
-                toggleBtn.style.background = "";
+                toggleBtn.style.background = ""; // 登録はデフォルトの緑
             }
             toggleBtn.addEventListener("click", async () => {
                 const isCurrentNow = getCurrentBookId() === ub.book_id;
@@ -242,25 +245,25 @@ function renderUserBookList(status, targetElId) {
                 await loadApiData();
                 renderAllViews();
             });
+            actions.appendChild(detailBtn);
+            actions.appendChild(toggleBtn);
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
             removeBtn.textContent = "積読から外す";
-            removeBtn.addEventListener("click", async () => {
-                try {
-                    await apiPatch(`/api/user-books/${ub.id}`, { status: "on_hold", latest_progress_percent: 0 }, true);
-                    if (getCurrentBookId() === ub.book_id)
-                        setCurrentBookId(null);
-                    await loadApiData();
-                    renderAllViews();
-                }
-                catch (err) {
-                    alert("積読から外す処理でエラーが発生しました");
-                    console.error(err);
-                }
-            });
-            actions.appendChild(detailBtn);
-            actions.appendChild(toggleBtn);
-            actions.appendChild(removeBtn);
+            if (getCurrentBookId() !== ub.book_id) {
+                removeBtn.addEventListener("click", async () => {
+                    try {
+                        await apiPatch(`/api/user-books/${ub.id}`, { status: "on_hold", latest_progress_percent: ub.latest_progress_percent }, true);
+                        await loadApiData();
+                        renderAllViews();
+                    }
+                    catch (err) {
+                        alert("積読から外す処理でエラーが発生しました");
+                        console.error(err);
+                    }
+                });
+                actions.appendChild(removeBtn);
+            }
             card.appendChild(actions);
         }
         if (status === "finished") {
@@ -384,7 +387,7 @@ function renderBookSettings() {
     const latestLabel = qs("#progress-helper");
     const progressInput = qs("#progress");
     const mode = (tempReadingMode ||
-        (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) ||
+        currentUserBook?.reading_mode ||
         modeSelect.value ||
         "percent");
     modeSelect.value = mode;
@@ -393,7 +396,7 @@ function renderBookSettings() {
     pagesRow.style.display = mode === "pages" ? "grid" : "none";
     progressInput.min = "0";
     if (mode === "pages") {
-        const total = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user;
+        const total = currentUserBook?.total_pages_user;
         progressInput.max = total ? String(total) : "";
         progressInput.placeholder = total ? `0〜${total} ページ` : "ページ数を入力";
     }
@@ -419,8 +422,8 @@ function renderBookSettings() {
 function renderDetailProgress() {
     const input = qs("#detail-progress");
     const helper = qs("#detail-progress-helper");
-    const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-    const total = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user;
+    const mode = currentUserBook?.reading_mode || "percent";
+    const total = currentUserBook?.total_pages_user;
     input.min = "0";
     if (mode === "pages") {
         input.max = total ? String(total) : "";
@@ -450,7 +453,7 @@ function renderCurrentBookSubtitle() {
         return;
     const current = getCurrentBookId();
     const book = current ? apiBooks.find((b) => b.id === current) : null;
-    const progress = currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.latest_progress_percent;
+    const progress = currentUserBook?.latest_progress_percent;
     const progressText = typeof progress === "number" && Number.isFinite(progress) ? `（進度: ${progress}%）` : "";
     subtitle.textContent = book ? `いま読んでいる本：${book.title}${progressText}` : "いま読んでいる本：なし";
 }
@@ -467,7 +470,7 @@ function renderBookMeta() {
     author.textContent = book ? `著者: ${book.author}` : "";
     const mode = document.createElement("div");
     mode.className = "muted";
-    mode.textContent = `入力モード: ${(currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) === "pages" ? "ページ" : "パーセンテージ"}`;
+    mode.textContent = `入力モード: ${currentUserBook?.reading_mode === "pages" ? "ページ" : "パーセンテージ"}`;
     const pages = document.createElement("div");
     pages.className = "muted";
     pages.textContent = currentUserBook ? `総ページ: ${currentUserBook.total_pages_user}p` : "総ページ未設定";
@@ -563,8 +566,8 @@ function setupFormHandlers() {
             return;
         }
         const rawProgress = Number(progressInput.value);
-        const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-        const totalPages = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user) || 0;
+        const mode = currentUserBook?.reading_mode || "percent";
+        const totalPages = currentUserBook?.total_pages_user || 0;
         let progressVal = rawProgress;
         if (mode === "pages") {
             if (!totalPages || totalPages <= 0) {
@@ -744,8 +747,8 @@ function setupDetailProgressHandlers() {
             helper.textContent = "先にログインしてください";
             return;
         }
-        const mode = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.reading_mode) || "percent";
-        const total = (currentUserBook === null || currentUserBook === void 0 ? void 0 : currentUserBook.total_pages_user) || Number(qs("#total-pages").value) || 0;
+        const mode = currentUserBook?.reading_mode || "percent";
+        const total = currentUserBook?.total_pages_user || Number(qs("#total-pages").value) || 0;
         const raw = Number(input.value);
         let percent = raw;
         if (mode === "pages") {

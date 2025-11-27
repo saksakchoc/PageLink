@@ -188,6 +188,9 @@ function renderSearchResults(keyword: string) {
     if (existing && (existing.status === "reading" || existing.status === "finished")) {
       startBtn.disabled = true;
       startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
+      startBtn.style.background = "#d1d5db";
+      startBtn.style.color = "#555";
+      startBtn.style.cursor = "not-allowed";
     } else {
       startBtn.addEventListener("click", async () => {
         if (!currentUser) {
@@ -226,6 +229,8 @@ function renderSearchResults(keyword: string) {
 }
 
 function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
+  // 今読んでいる本をセット
+  renderCurrentBookSubtitle();
   const container = qs<HTMLDivElement>(`#${targetElId}`);
   container.innerHTML = "";
   const targets = apiUserBooks.filter((ub) => ub.status === status);
@@ -267,7 +272,7 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
 
       const detailBtn = document.createElement("button");
       detailBtn.type = "button";
-      detailBtn.textContent = "この本の詳細";
+      detailBtn.textContent = "オプション";
       detailBtn.addEventListener("click", async () => {
         setCurrentBookId(ub.book_id);
         await loadApiData();
@@ -279,10 +284,10 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
       toggleBtn.type = "button";
       const isCurrent = getCurrentBookId() === ub.book_id;
       toggleBtn.textContent = isCurrent ? "今読んでいる本を解除" : "今読んでいる本に登録";
-      if (!isCurrent) {
-        toggleBtn.style.background = "#ea580c";
+      if (isCurrent) {
+        toggleBtn.style.background = "#ea580c"; // 解除はオレンジ
       } else {
-        toggleBtn.style.background = "";
+        toggleBtn.style.background = ""; // 登録はデフォルトの緑
       }
       toggleBtn.addEventListener("click", async () => {
         const isCurrentNow = getCurrentBookId() === ub.book_id;
@@ -291,25 +296,30 @@ function renderUserBookList(status: ApiUserBook["status"], targetElId: string) {
         await loadApiData();
         renderAllViews();
       });
+      actions.appendChild(detailBtn);
+      actions.appendChild(toggleBtn);
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.textContent = "積読から外す";
-      removeBtn.addEventListener("click", async () => {
-        try {
-          await apiPatch(`/api/user-books/${ub.id}`, { status: "on_hold", latest_progress_percent: 0 }, true);
-          if (getCurrentBookId() === ub.book_id) setCurrentBookId(null);
-          await loadApiData();
-          renderAllViews();
-        } catch (err) {
-          alert("積読から外す処理でエラーが発生しました");
-          console.error(err);
-        }
-      });
+      if (getCurrentBookId() !== ub.book_id) {
+        removeBtn.addEventListener("click", async () => {
+          try {
+            await apiPatch(
+              `/api/user-books/${ub.id}`,
+              { status: "on_hold", latest_progress_percent: ub.latest_progress_percent },
+              true,
+            );
+            await loadApiData();
+            renderAllViews();
+          } catch (err) {
+            alert("積読から外す処理でエラーが発生しました");
+            console.error(err);
+          }
+        });
+        actions.appendChild(removeBtn);
+      }
 
-      actions.appendChild(detailBtn);
-      actions.appendChild(toggleBtn);
-      actions.appendChild(removeBtn);
       card.appendChild(actions);
     }
 

@@ -37,7 +37,7 @@ interface ApiReadingLog {
   created_at: string;
 }
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = "/api";
 const API_AUTH_TOKEN_KEY = "apiAuthToken";
 const CURRENT_BOOK_STORAGE_KEY = "currentBookId";
 const LAST_VIEW_KEY = "lastViewId";

@@ -8,12 +8,14 @@ let apiUsers = [];
 let apiBooks = [];
 let apiUserBooks = [];
 let apiReadingLogs = [];
+let apiActivityLogs = [];
 let currentUser = null;
 let currentUserBook = null;
 let currentBookId = null;
 let tempReadingMode = null;
 let pendingIconData = undefined;
 let profileViewUserId = null;
+let shelfMode = "reading";
 function qs(selector) {
     const el = document.querySelector(selector);
     if (!el)
@@ -61,6 +63,16 @@ function setCurrentBookId(id) {
         localStorage.setItem(CURRENT_BOOK_STORAGE_KEY, String(id));
     else
         localStorage.removeItem(CURRENT_BOOK_STORAGE_KEY);
+}
+function clampPercent(value) {
+    if (!Number.isFinite(value))
+        return 0;
+    return Math.max(0, Math.min(100, Math.round(value)));
+}
+function clampInt(value) {
+    if (!Number.isFinite(value))
+        return 0;
+    return Math.max(0, Math.round(value));
 }
 async function apiGet(path, withAuth = false) {
     const headers = {};
@@ -117,6 +129,21 @@ function renderUserArea() {
         fallback.style.display = "inline";
     }
     btn.title = currentUser ? `${currentUser.displayName}のプロフィール` : "ログインしてください";
+}
+function updateShelfDisplay() {
+    const readingList = document.querySelector("#reading-list");
+    const finishedList = document.querySelector("#finished-list");
+    if (readingList)
+        readingList.style.display = shelfMode === "reading" ? "" : "none";
+    if (finishedList)
+        finishedList.style.display = shelfMode === "finished" ? "" : "none";
+    document.querySelectorAll(".shelf-tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mode === shelfMode);
+    });
+}
+function setShelfMode(mode) {
+    shelfMode = mode;
+    updateShelfDisplay();
 }
 function openProfileView(userId) {
     if (typeof userId === "number")
@@ -309,7 +336,8 @@ function renderUserBookList(status, targetElId) {
                     setCurrentBookId(ub.book_id);
                     await loadApiData();
                     renderAllViews();
-                    setActiveView("my-reading-view");
+                    setShelfMode("reading");
+                    setActiveView("my-shelf-view");
                 }
                 catch (err) {
                     alert("積読に戻す処理でエラーが発生しました");
@@ -524,19 +552,21 @@ function setupProfileForm() {
         messageEl.textContent = "アイコンをリセットします";
     });
 }
-function renderApiTimeline() {
-    const container = qs("#timeline");
+function renderReadingLogTimeline() {
+    const container = document.querySelector("#reading-log-timeline");
+    if (!container)
+        return;
     container.innerHTML = "";
     if (!currentUser) {
         container.textContent = "ログインしてください";
         return;
     }
-    const filtered = [...apiReadingLogs].sort((a, b) => {
+    const logs = [...apiReadingLogs].sort((a, b) => {
         if (b.progress_percent !== a.progress_percent)
             return b.progress_percent - a.progress_percent;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-    if (filtered.length === 0) {
+    if (logs.length === 0) {
         const empty = document.createElement("div");
         empty.textContent = "投稿がまだありません。最初の感想を残しましょう";
         empty.style.color = "#6b665d";
@@ -544,16 +574,26 @@ function renderApiTimeline() {
         container.appendChild(empty);
         return;
     }
-    filtered.forEach((log) => {
+    logs.forEach((log) => {
         const card = document.createElement("article");
         card.className = "card";
         if (currentUser && log.user_id === currentUser.id)
             card.classList.add("mine");
         const top = document.createElement("div");
         top.className = "card-top";
+        const user = apiUsers.find((u) => u.id === log.user_id);
+        const userBookForUser = apiUserBooks.find((ub) => ub.user_id === log.user_id && ub.book_id === log.book_id);
         const prog = document.createElement("div");
         prog.className = "progress";
-        prog.textContent = `${log.progress_percent}%`;
+        const percentText = `${log.progress_percent}%`;
+        const usePages = user?.id === currentUser?.id && userBookForUser?.reading_mode === "pages";
+        if (usePages && log.progress_unit === "pages") {
+            const value = log.progress_value ?? Math.round(log.progress_percent);
+            prog.textContent = `${percentText} (${value}ページ)`;
+        }
+        else {
+            prog.textContent = percentText;
+        }
         const time = document.createElement("div");
         time.className = "timestamp";
         time.textContent = formatDate(log.created_at);
@@ -563,7 +603,6 @@ function renderApiTimeline() {
         userInfo.className = "timeline-user";
         const avatar = document.createElement("div");
         avatar.className = "timeline-avatar";
-        const user = apiUsers.find((u) => u.id === log.user_id);
         if (user?.iconUrl) {
             const img = document.createElement("img");
             img.src = user.iconUrl;
@@ -600,19 +639,99 @@ function renderApiTimeline() {
         else {
             userInfo.style.cursor = "default";
         }
+        const content = document.createElement("div");
+        content.className = "content";
+        content.textContent = log.content;
         const tags = document.createElement("div");
         tags.className = "tag-row";
         const tag = document.createElement("span");
         tag.className = "tag";
         tag.textContent = log.visibility === "private" ? "非公開" : "公開";
         tags.appendChild(tag);
-        const content = document.createElement("div");
-        content.className = "content";
-        content.textContent = log.content;
         card.appendChild(top);
         card.appendChild(userInfo);
         card.appendChild(content);
         card.appendChild(tags);
+        container.appendChild(card);
+    });
+}
+function renderActivityTimeline() {
+    const container = document.querySelector("#activity-timeline");
+    if (!container)
+        return;
+    container.innerHTML = "";
+    if (!currentUser) {
+        container.textContent = "ログインしてください";
+        return;
+    }
+    const items = [...apiActivityLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (items.length === 0) {
+        const empty = document.createElement("div");
+        empty.textContent = "まだアクティビティがありません。";
+        empty.style.color = "#6b665d";
+        empty.style.fontSize = "0.95rem";
+        container.appendChild(empty);
+        return;
+    }
+    items.forEach((activity) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        const top = document.createElement("div");
+        top.className = "card-top";
+        const status = document.createElement("div");
+        status.className = "pill";
+        status.textContent = activity.type === "start" ? "読み始め" : "読了";
+        const time = document.createElement("div");
+        time.className = "timestamp";
+        time.textContent = formatDate(activity.created_at);
+        top.appendChild(status);
+        top.appendChild(time);
+        const userInfo = document.createElement("div");
+        userInfo.className = "timeline-user";
+        const avatar = document.createElement("div");
+        avatar.className = "timeline-avatar";
+        const user = apiUsers.find((u) => u.id === activity.user_id);
+        if (user?.iconUrl) {
+            const img = document.createElement("img");
+            img.src = user.iconUrl;
+            img.alt = `${user.displayName}のアイコン`;
+            avatar.appendChild(img);
+        }
+        else {
+            const initial = user?.displayName?.trim().charAt(0) || "?";
+            avatar.textContent = initial;
+        }
+        const userText = document.createElement("div");
+        const userName = document.createElement("div");
+        userName.className = "username";
+        userName.textContent = user ? user.displayName : "ユーザー";
+        const userId = document.createElement("div");
+        userId.className = "muted";
+        userId.textContent = user ? `@${user.userId}` : "";
+        userText.appendChild(userName);
+        if (user)
+            userText.appendChild(userId);
+        userInfo.appendChild(avatar);
+        userInfo.appendChild(userText);
+        if (user) {
+            userInfo.style.cursor = "pointer";
+            userInfo.addEventListener("click", () => openProfileView(user.id));
+            userInfo.tabIndex = 0;
+            userInfo.addEventListener("keypress", (ev) => {
+                if (ev.key === "Enter" || ev.key === " ") {
+                    ev.preventDefault();
+                    openProfileView(user.id);
+                }
+            });
+        }
+        const book = apiBooks.find((b) => b.id === activity.book_id);
+        const message = document.createElement("div");
+        message.className = "content";
+        const verb = activity.type === "start" ? "読み始めました" : "読了しました";
+        message.textContent = `${book ? book.title : "本"}を${verb}`;
+        card.appendChild(top);
+        card.appendChild(userInfo);
+        card.appendChild(message);
         container.appendChild(card);
     });
 }
@@ -645,14 +764,14 @@ function renderBookSettings() {
         modeLabel.textContent = "進度 (ページ)";
         latestLabel.textContent =
             currentUserBook && currentUserBook.latest_progress_percent >= 0
-                ? `現在: 約 ${(currentUserBook.total_pages_user * currentUserBook.latest_progress_percent) / 100} / ${currentUserBook.total_pages_user} ページ`
+                ? `現在: ${currentUserBook.latest_progress_value || 0} / ${currentUserBook.total_pages_user} ページ`
                 : "";
     }
     else {
         modeLabel.textContent = "進度 (%)";
         latestLabel.textContent =
             currentUserBook && currentUserBook.latest_progress_percent >= 0
-                ? `現在: ${currentUserBook.latest_progress_percent}%`
+                ? `現在: ${clampPercent(currentUserBook.latest_progress_percent)}%`
                 : "";
     }
 }
@@ -665,22 +784,19 @@ function renderDetailProgress() {
     if (mode === "pages") {
         input.max = total ? String(total) : "";
         input.placeholder = total ? `0〜${total} ページ` : "ページ数を入力";
-        input.value =
-            currentUserBook && total
-                ? String(Math.round((total * currentUserBook.latest_progress_percent) / 100))
-                : "";
+        input.value = currentUserBook && total ? String(currentUserBook.latest_progress_value || 0) : "";
         helper.textContent =
             currentUserBook && total
-                ? `現在: 約 ${(total * currentUserBook.latest_progress_percent) / 100} / ${total} ページ`
+                ? `現在: ${currentUserBook.latest_progress_value || 0} / ${total} ページ`
                 : "総ページ数を設定してください";
     }
     else {
         input.max = "100";
         input.placeholder = "0〜100";
-        input.value = currentUserBook ? String(currentUserBook.latest_progress_percent) : "";
+        input.value = currentUserBook ? String(clampPercent(currentUserBook.latest_progress_percent)) : "";
         helper.textContent =
             currentUserBook && currentUserBook.latest_progress_percent >= 0
-                ? `現在: ${currentUserBook.latest_progress_percent}%`
+                ? `現在: ${clampPercent(currentUserBook.latest_progress_percent)}%`
                 : "";
     }
 }
@@ -691,7 +807,15 @@ function renderCurrentBookSubtitle() {
     const current = getCurrentBookId();
     const book = current ? apiBooks.find((b) => b.id === current) : null;
     const progress = currentUserBook?.latest_progress_percent;
-    const progressText = typeof progress === "number" && Number.isFinite(progress) ? `（進度: ${progress}%）` : "";
+    let progressText = "";
+    if (currentUserBook) {
+        if (currentUserBook.reading_mode === "pages") {
+            progressText = `（進度: ${currentUserBook.latest_progress_value || 0}ページ）`;
+        }
+        else if (typeof progress === "number" && Number.isFinite(progress)) {
+            progressText = `（進度: ${clampPercent(progress)}%）`;
+        }
+    }
     subtitle.textContent = book ? `いま読んでいる本：${book.title}${progressText}` : "いま読んでいる本：なし";
 }
 function renderBookMeta() {
@@ -720,7 +844,8 @@ function updateNavVisibility() {
     const loggedIn = Boolean(getAuthToken());
     document.querySelectorAll(".nav-btn").forEach((btn) => {
         const isLoginBtn = btn.dataset.view === "login-view";
-        const shouldShow = loggedIn ? !isLoginBtn : isLoginBtn;
+        const isTimelineBtn = btn.dataset.view === "book-page";
+        const shouldShow = loggedIn ? !isLoginBtn : isLoginBtn || isTimelineBtn;
         btn.style.display = shouldShow ? "" : "none";
     });
 }
@@ -728,9 +853,11 @@ function renderAllViews() {
     renderUserArea();
     renderUserBookList("reading", "reading-list");
     renderUserBookList("finished", "finished-list");
+    updateShelfDisplay();
+    renderReadingLogTimeline();
+    renderActivityTimeline();
     renderProfileCard();
     renderProfileForm();
-    renderApiTimeline();
     updateProgressInput();
     renderCurrentBookSubtitle();
     renderBookMeta();
@@ -815,24 +942,32 @@ function setupFormHandlers() {
         const rawProgress = Number(progressInput.value);
         const mode = currentUserBook?.reading_mode || "percent";
         const totalPages = currentUserBook?.total_pages_user || 0;
-        let progressVal = rawProgress;
+        let progressPercent = clampPercent(rawProgress);
+        let progressValue = clampInt(rawProgress);
+        let progressUnit = "percent";
         if (mode === "pages") {
             if (!totalPages || totalPages <= 0) {
                 errorEl.textContent = "ページ数を先に設定してください";
                 return;
             }
-            progressVal = Math.floor((rawProgress / totalPages) * 100);
+            progressUnit = "pages";
+            progressValue = clampInt(rawProgress);
+            progressPercent = clampPercent((progressValue / totalPages) * 100);
         }
-        const contentVal = contentInput.value;
-        if (!Number.isInteger(progressVal) || progressVal < 0 || progressVal > 100) {
+        if (!Number.isInteger(progressPercent) || progressPercent < 0 || progressPercent > 100) {
             errorEl.textContent = "進度は0〜100の整数で入力してください";
             return;
         }
-        if (progressVal === 100) {
+        const contentVal = contentInput.value;
+        if (progressPercent === 100) {
             const ok = confirm("進捗が100%です。読了ステータスに変更しますか？");
             if (ok) {
                 try {
-                    await apiPatch(`/api/user-books/${currentUserBook.id}`, { status: "finished", latest_progress_percent: 100 }, true);
+                    await apiPatch(`/api/user-books/${currentUserBook.id}`, {
+                        status: "finished",
+                        latest_progress_percent: 100,
+                        latest_progress_value: currentUserBook.total_pages_user,
+                    }, true);
                 }
                 catch (err) {
                     alert("読了への更新に失敗しました");
@@ -845,7 +980,9 @@ function setupFormHandlers() {
         try {
             await apiPost("/api/reading-logs", {
                 book_id: getCurrentBookId(),
-                progress_percent: progressVal,
+                progress_percent: progressPercent,
+                progress_value: progressValue,
+                progress_unit: progressUnit,
                 content: contentVal.trim(),
                 visibility: visibilityInput.value,
             }, true);
@@ -873,11 +1010,11 @@ function updateProgressInput() {
     currentUserBook = entry || null;
     if (entry) {
         if (entry.reading_mode === "pages") {
-            const pages = Math.round((entry.total_pages_user * entry.latest_progress_percent) / 100);
+            const pages = entry.latest_progress_value || Math.round((entry.total_pages_user * entry.latest_progress_percent) / 100);
             progressInput.value = String(pages);
         }
         else {
-            progressInput.value = String(entry.latest_progress_percent);
+            progressInput.value = String(clampPercent(entry.latest_progress_percent));
         }
     }
     else {
@@ -934,6 +1071,7 @@ async function loadApiData() {
         apiReadingLogs = [];
         currentUserBook = null;
     }
+    apiActivityLogs = await apiGet("/api/activity-logs");
     tempReadingMode = null;
 }
 function renderBookSettingsHandlers() {
@@ -998,7 +1136,8 @@ function setupDetailProgressHandlers() {
             helper.textContent = "読了に変更しました";
             await loadApiData();
             renderAllViews();
-            setActiveView("my-finished-view");
+            setShelfMode("finished");
+            setActiveView("my-shelf-view");
         }
         catch (err) {
             helper.textContent = "読了への変更に失敗しました";
@@ -1015,12 +1154,18 @@ function setupDetailProgressHandlers() {
         const total = currentUserBook?.total_pages_user || Number(qs("#total-pages").value) || 0;
         const raw = Number(input.value);
         let percent = raw;
+        let rawValue = clampInt(raw);
+        let unit = mode === "pages" ? "pages" : "percent";
         if (mode === "pages") {
             if (!total || total <= 0) {
                 helper.textContent = "先に総ページ数を設定してください";
                 return;
             }
-            percent = Math.floor((raw / total) * 100);
+            percent = clampPercent((rawValue / total) * 100);
+        }
+        else {
+            percent = clampPercent(raw);
+            rawValue = percent;
         }
         if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
             helper.textContent = "進捗は0〜100の整数で入力してください";
@@ -1031,7 +1176,7 @@ function setupDetailProgressHandlers() {
                 helper.textContent = "先に本の設定を保存してください";
                 return;
             }
-            await apiPatch(`/api/user-books/${currentUserBook.id}`, { latest_progress_percent: percent }, true);
+            await apiPatch(`/api/user-books/${currentUserBook.id}`, { latest_progress_percent: percent, latest_progress_value: rawValue }, true);
             helper.textContent = "進捗を保存しました";
             await loadApiData();
             renderAllViews();
@@ -1056,6 +1201,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             const target = btn.dataset.view;
             if (target)
                 setActiveView(target);
+        });
+    });
+    document.querySelectorAll(".shelf-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const mode = btn.dataset.mode === "finished" ? "finished" : "reading";
+            setShelfMode(mode);
         });
     });
     const navProfileBtn = document.querySelector("#nav-profile-btn");

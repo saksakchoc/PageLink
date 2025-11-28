@@ -53,6 +53,26 @@ function migrateUserBooksIfNeeded() {
   if (!hasReadingMode) {
     db.exec("ALTER TABLE user_books ADD COLUMN reading_mode TEXT NOT NULL DEFAULT 'percent'");
   }
+  const hasProgressValue = cols.some((c) => c.name === "latest_progress_value");
+  if (!hasProgressValue) {
+    db.exec("ALTER TABLE user_books ADD COLUMN latest_progress_value INTEGER NOT NULL DEFAULT 0");
+    db.exec("UPDATE user_books SET latest_progress_value = latest_progress_percent WHERE latest_progress_value = 0");
+  }
+}
+
+function migrateReadingLogsIfNeeded() {
+  const cols = db.prepare("PRAGMA table_info(reading_logs)").all();
+  if (cols.length === 0) return;
+  const hasValue = cols.some((c) => c.name === "progress_value");
+  if (!hasValue) {
+    db.exec("ALTER TABLE reading_logs ADD COLUMN progress_value INTEGER");
+    db.exec("UPDATE reading_logs SET progress_value = progress_percent");
+  }
+  const hasUnit = cols.some((c) => c.name === "progress_unit");
+  if (!hasUnit) {
+    db.exec("ALTER TABLE reading_logs ADD COLUMN progress_unit TEXT NOT NULL DEFAULT 'percent'");
+    db.exec("UPDATE reading_logs SET progress_unit = 'percent' WHERE progress_unit IS NULL");
+  }
 }
 
 db.exec(`
@@ -79,6 +99,7 @@ CREATE TABLE IF NOT EXISTS user_books (
   total_pages_user INTEGER NOT NULL,
   status TEXT NOT NULL,
   latest_progress_percent INTEGER NOT NULL DEFAULT 0,
+  latest_progress_value INTEGER NOT NULL DEFAULT 0,
   reading_mode TEXT NOT NULL DEFAULT 'percent'
 );
 CREATE TABLE IF NOT EXISTS reading_logs (
@@ -86,6 +107,8 @@ CREATE TABLE IF NOT EXISTS reading_logs (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
   progress_percent INTEGER NOT NULL,
+  progress_value INTEGER,
+  progress_unit TEXT NOT NULL DEFAULT 'percent',
   content TEXT,
   visibility TEXT NOT NULL DEFAULT 'public',
   created_at TEXT NOT NULL
@@ -94,6 +117,13 @@ CREATE TABLE IF NOT EXISTS likes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   reading_log_id INTEGER NOT NULL REFERENCES reading_logs(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 `);
@@ -117,6 +147,7 @@ if (!userCols.includes("icon_url")) {
 migrateUsersIfNeeded();
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)");
 migrateUserBooksIfNeeded();
+migrateReadingLogsIfNeeded();
 
 // seed data
 const seedUserCount = db.prepare("SELECT COUNT(*) as c FROM users").get().c;
@@ -158,7 +189,7 @@ function mapUserRow(row) {
 const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo");
 if (demoUser) {
   db.prepare(
-    "INSERT OR IGNORE INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, reading_mode) VALUES (?, ?, ?, 'reading', 0, 'percent')",
+    "INSERT OR IGNORE INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, latest_progress_value, reading_mode) VALUES (?, ?, ?, 'reading', 0, 0, 'percent')",
   ).run(demoUser.id, 101, 432);
 }
 
@@ -170,6 +201,16 @@ function issueToken(userId) {
   const token = crypto.randomUUID();
   tokens.set(token, userId);
   return token;
+}
+
+function recordActivity(userId, bookId, type) {
+  const createdAt = new Date().toISOString();
+  db.prepare("INSERT INTO activity_logs (user_id, book_id, type, created_at) VALUES (?, ?, ?, ?)").run(
+    userId,
+    bookId,
+    type,
+    createdAt,
+  );
 }
 
 function findUserByUsername(username) {
@@ -335,10 +376,12 @@ app.post("/api/user-books", authMiddleware, (req, res) => {
   }
   const result = db
     .prepare(
-      "INSERT INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, reading_mode) VALUES (?, ?, ?, ?, 0, ?)",
+      "INSERT INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, latest_progress_value, reading_mode) VALUES (?, ?, ?, ?, 0, 0, ?)",
     )
     .run(req.user.id, book_id, total_pages_user, status, reading_mode);
   const ub = db.prepare("SELECT * FROM user_books WHERE id = ?").get(result.lastInsertRowid);
+  if (status === "reading")
+    recordActivity(req.user.id, book_id, "start");
   res.status(201).json(ub);
 });
 
@@ -347,17 +390,24 @@ app.patch("/api/user-books/:id", authMiddleware, (req, res) => {
   const ub = db.prepare("SELECT * FROM user_books WHERE id = ?").get(id);
   if (!ub) return res.status(404).json({ error: "userBook not found" });
   if (ub.user_id !== req.user.id) return res.status(403).json({ error: "forbidden" });
-  const { status, latest_progress_percent, total_pages_user, reading_mode } = req.body || {};
+  const { status, latest_progress_percent, latest_progress_value, total_pages_user, reading_mode } = req.body || {};
   const newStatus = status || ub.status;
-  const newProgress = Number.isFinite(latest_progress_percent)
+  const newProgressPercent = Number.isFinite(latest_progress_percent)
     ? latest_progress_percent
     : ub.latest_progress_percent;
+  const newProgressValue = Number.isFinite(latest_progress_value)
+    ? latest_progress_value
+    : ub.latest_progress_value;
   const newTotal = Number.isFinite(total_pages_user) ? total_pages_user : ub.total_pages_user;
   const newMode = reading_mode || ub.reading_mode;
   db.prepare(
-    "UPDATE user_books SET status = ?, latest_progress_percent = ?, total_pages_user = ?, reading_mode = ? WHERE id = ?",
-  ).run(newStatus, newProgress, newTotal, newMode, id);
+    "UPDATE user_books SET status = ?, latest_progress_percent = ?, latest_progress_value = ?, total_pages_user = ?, reading_mode = ? WHERE id = ?",
+  ).run(newStatus, newProgressPercent, newProgressValue, newTotal, newMode, id);
   const updated = db.prepare("SELECT * FROM user_books WHERE id = ?").get(id);
+  if (ub.status !== newStatus) {
+    if (newStatus === "reading") recordActivity(req.user.id, updated.book_id, "start");
+    if (newStatus === "finished") recordActivity(req.user.id, updated.book_id, "finish");
+  }
   res.json(updated);
 });
 
@@ -401,32 +451,86 @@ app.get("/api/reading-logs", (req, res) => {
   res.json(result);
 });
 
+app.get("/api/activity-logs", (req, res) => {
+  const bookId = req.query.bookId ? Number(req.query.bookId) : null;
+  let query = "SELECT * FROM activity_logs";
+  const params = [];
+  if (bookId) {
+    query += " WHERE book_id = ?";
+    params.push(bookId);
+  }
+  query += " ORDER BY datetime(created_at) DESC";
+  const rows = db.prepare(query).all(...params);
+  res.json(rows);
+});
+
 app.post("/api/reading-logs", authMiddleware, (req, res) => {
-  const { book_id, progress_percent, content, visibility = "public" } = req.body || {};
+  const { book_id, progress_percent, progress_value, progress_unit = "percent", content, visibility = "public" } =
+    req.body || {};
   if (!book_id || progress_percent === undefined || progress_percent === null) {
     return res.status(400).json({ error: "book_id and progress_percent are required" });
   }
-  const progress = Math.max(0, Math.min(100, Math.trunc(progress_percent)));
+  let percent = Math.max(0, Math.min(100, Math.trunc(progress_percent)));
+  let value = Number.isFinite(progress_value) ? Number(progress_value) : null;
+  let unit = progress_unit === "pages" ? "pages" : "percent";
   const createdAt = new Date().toISOString();
-  const result = db
-    .prepare(
-      "INSERT INTO reading_logs (user_id, book_id, progress_percent, content, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .run(req.user.id, book_id, progress, content || "", visibility, createdAt);
-  const log = db.prepare("SELECT * FROM reading_logs WHERE id = ?").get(result.lastInsertRowid);
 
-  // update/create user_book progress
   const ub = db
     .prepare("SELECT * FROM user_books WHERE user_id = ? AND book_id = ?")
     .get(req.user.id, book_id);
-  if (ub) {
-    db.prepare("UPDATE user_books SET latest_progress_percent = ? WHERE id = ?").run(progress, ub.id);
+  let totalPages = ub ? ub.total_pages_user : null;
+  if (!totalPages) {
+    const bookRow = db.prepare("SELECT total_pages_isbn FROM books WHERE id = ?").get(book_id);
+    totalPages = bookRow ? bookRow.total_pages_isbn : null;
+  }
+
+  if (unit === "pages") {
+    value = value !== null ? Math.max(0, Math.trunc(value)) : 0;
+    if (totalPages && totalPages > 0) {
+      percent = Math.max(0, Math.min(100, Math.round((value / totalPages) * 100)));
+    }
   } else {
-    const book = db.prepare("SELECT total_pages_isbn FROM books WHERE id = ?").get(book_id);
-    const totalPages = book?.total_pages_isbn || 100;
+    unit = "percent";
+    value = value !== null ? Math.max(0, Math.trunc(value)) : percent;
+  }
+
+  const result = db
+    .prepare(
+      "INSERT INTO reading_logs (user_id, book_id, progress_percent, progress_value, progress_unit, content, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(req.user.id, book_id, percent, value, unit, content || "", visibility, createdAt);
+  const log = db.prepare("SELECT * FROM reading_logs WHERE id = ?").get(result.lastInsertRowid);
+
+  if (ub) {
+    const shouldUpdate =
+      percent > ub.latest_progress_percent ||
+      (unit === "pages" && value !== null && value !== undefined && value > ub.latest_progress_value);
+    if (shouldUpdate) {
+      const storedValue =
+        unit === "pages" && value !== null && value !== undefined
+          ? value
+          : Math.round(((ub.total_pages_user || 0) * percent) / 100);
+      db.prepare("UPDATE user_books SET latest_progress_percent = ?, latest_progress_value = ? WHERE id = ?").run(
+        Math.max(percent, ub.latest_progress_percent),
+        storedValue,
+        ub.id,
+      );
+    }
+  } else {
+    const total = totalPages || 100;
+    const storedValue =
+      unit === "pages" && value !== null && value !== undefined ? value : Math.round((total * percent) / 100);
     db.prepare(
-      "INSERT INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, reading_mode) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(req.user.id, book_id, totalPages, "reading", progress, "percent");
+      "INSERT INTO user_books (user_id, book_id, total_pages_user, status, latest_progress_percent, latest_progress_value, reading_mode) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      req.user.id,
+      book_id,
+      total,
+      "reading",
+      percent,
+      storedValue,
+      unit === "pages" ? "pages" : "percent",
+    );
   }
 
   res.status(201).json(log);

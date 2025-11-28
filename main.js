@@ -190,7 +190,15 @@ function renderSearchResults(keyword) {
 function renderUserBookList(status, targetElId) {
     const container = qs(`#${targetElId}`);
     container.innerHTML = "";
-    const targets = apiUserBooks.filter((ub) => ub.status === status);
+    const user = currentUser;
+    if (!user) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "ログインしてください";
+        container.appendChild(empty);
+        return;
+    }
+    const targets = apiUserBooks.filter((ub) => ub.status === status && ub.user_id === user.id);
     if (targets.length === 0) {
         const empty = document.createElement("div");
         empty.className = "muted";

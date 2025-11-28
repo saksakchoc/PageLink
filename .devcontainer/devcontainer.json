@@ -8,5 +8,12 @@
   "service": "dev",
   "workspaceFolder": "/workspace",
   "shutdownAction": "stopCompose",
-  "forwardPorts": [3000, 8080]
+  "forwardPorts": [3000, 8080],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "openai.chatgpt"
+      ] //Codex
+    }
+  }
 }

@@ -158,14 +158,21 @@ function renderSearchResults(keyword) {
     list.innerHTML = "";
     const normalized = keyword.trim().toLowerCase();
     const beastVolumes = [
-        { id: 101, title: "獣の奏者 I 闘蛇編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 432 },
-        { id: 102, title: "獣の奏者 II 王獣編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 456 },
-        { id: 103, title: "獣の奏者 III 探求編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 480 },
-        { id: 104, title: "獣の奏者 IV 完結編", author: "上橋菜穂子", language: "ja", total_pages_isbn: 520 },
-        { id: 105, title: "獣の奏者 外伝 刹那", author: "上橋菜穂子", language: "ja", total_pages_isbn: 240 },
+        { id: 101, title: "獣の奏者 I 闘蛇編", author: "上橋菜穂子", total_pages_isbn: 432 },
+        { id: 102, title: "獣の奏者 II 王獣編", author: "上橋菜穂子", total_pages_isbn: 456 },
+        { id: 103, title: "獣の奏者 III 探求編", author: "上橋菜穂子", total_pages_isbn: 480 },
+        { id: 104, title: "獣の奏者 IV 完結編", author: "上橋菜穂子", total_pages_isbn: 520 },
+        { id: 105, title: "獣の奏者 外伝 刹那", author: "上橋菜穂子", total_pages_isbn: 240 },
     ];
     const shouldShowBeast = normalized === "" || normalized.includes("獣の奏者") || normalized.includes("kemono") || normalized.includes("beast");
-    const merged = shouldShowBeast ? [...beastVolumes] : [];
+    const merged = [...apiBooks];
+    const existingIds = new Set(merged.map((b) => b.id));
+    if (shouldShowBeast) {
+        beastVolumes.forEach((b) => {
+            if (!existingIds.has(b.id))
+                merged.push(b);
+        });
+    }
     const filtered = merged.filter((b) => {
         if (!normalized)
             return true;
@@ -176,67 +183,124 @@ function renderSearchResults(keyword) {
         empty.className = "muted";
         empty.textContent = "該当する本が見つかりませんでした";
         list.appendChild(empty);
-        return;
     }
-    filtered.forEach((b) => {
-        const card = document.createElement("article");
-        card.className = "card";
-        const title = document.createElement("div");
-        title.className = "username";
-        title.textContent = b.title;
-        const author = document.createElement("div");
-        author.className = "muted";
-        author.textContent = b.author;
-        const meta = document.createElement("div");
-        meta.className = "muted";
-        meta.textContent = `言語: ${b.language || "不明"} / 総ページ数: ${b.total_pages_isbn ?? "-"}p`;
-        const actions = document.createElement("div");
-        actions.className = "actions";
-        actions.style.justifyContent = "flex-start";
-        const startBtn = document.createElement("button");
-        startBtn.type = "button";
-        startBtn.textContent = "積読に入れる";
-        const existing = apiUserBooks.find((ub) => ub.user_id === currentUser?.id && ub.book_id === b.id);
-        if (existing && (existing.status === "reading" || existing.status === "finished")) {
-            startBtn.disabled = true;
-            startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
-            startBtn.style.background = "#d1d5db";
-            startBtn.style.color = "#555";
-            startBtn.style.cursor = "not-allowed";
-        }
-        else {
-            startBtn.addEventListener("click", async () => {
-                if (!currentUser) {
-                    alert("ログインしてください");
-                    return;
-                }
-                const pages = b.total_pages_isbn || 100;
-                try {
-                    if (existing) {
-                        await apiPatch(`/api/user-books/${existing.id}`, { status: "reading" }, true);
-                        setCurrentBookId(b.id);
+    else {
+        filtered.forEach((b) => {
+            const card = document.createElement("article");
+            card.className = "card";
+            const title = document.createElement("div");
+            title.className = "username";
+            title.textContent = b.title;
+            const author = document.createElement("div");
+            author.className = "muted";
+            author.textContent = b.author;
+            const meta = document.createElement("div");
+            meta.className = "muted";
+            meta.textContent = `総ページ数: ${b.total_pages_isbn ?? "-"}p`;
+            const actions = document.createElement("div");
+            actions.className = "actions";
+            actions.style.justifyContent = "flex-start";
+            const startBtn = document.createElement("button");
+            startBtn.type = "button";
+            startBtn.textContent = "積読に入れる";
+            const existing = apiUserBooks.find((ub) => ub.user_id === currentUser?.id && ub.book_id === b.id);
+            if (existing && (existing.status === "reading" || existing.status === "finished")) {
+                startBtn.disabled = true;
+                startBtn.textContent = existing.status === "finished" ? "読了済み" : "読書中";
+                startBtn.style.background = "#d1d5db";
+                startBtn.style.color = "#555";
+                startBtn.style.cursor = "not-allowed";
+            }
+            else {
+                startBtn.addEventListener("click", async () => {
+                    if (!currentUser) {
+                        alert("ログインしてください");
+                        return;
                     }
-                    else {
-                        await apiPost("/api/user-books", { book_id: b.id, total_pages_user: pages, status: "reading", reading_mode: "percent" }, true);
-                        setCurrentBookId(b.id);
+                    const pages = b.total_pages_isbn || 100;
+                    try {
+                        if (existing) {
+                            await apiPatch(`/api/user-books/${existing.id}`, { status: "reading" }, true);
+                        }
+                        else {
+                            await apiPost("/api/user-books", { book_id: b.id, total_pages_user: pages, status: "reading", reading_mode: "percent" }, true);
+                        }
+                        await loadApiData();
+                        renderAllViews();
+                        location.reload(); // 要望: 積読に入れる押下後ページ再読み込み
                     }
-                    await loadApiData();
-                    renderAllViews();
-                    location.reload(); // 要望: 積読に入れる押下後ページ再読み込み
-                }
-                catch (err) {
-                    alert("読書開始に失敗しました");
-                    console.error(err);
-                }
-            });
+                    catch (err) {
+                        alert("読書開始に失敗しました");
+                        console.error(err);
+                    }
+                });
+            }
+            actions.appendChild(startBtn);
+            card.appendChild(title);
+            card.appendChild(author);
+            card.appendChild(meta);
+            card.appendChild(actions);
+            list.appendChild(card);
+        });
+    }
+    const addCard = document.createElement("article");
+    addCard.className = "card";
+    addCard.style.display = "grid";
+    addCard.style.gap = "8px";
+    const titleLabel = document.createElement("label");
+    titleLabel.textContent = "新しい本を追加";
+    titleLabel.style.fontWeight = "700";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.placeholder = "タイトル";
+    titleInput.value = keyword.trim();
+    const authorInput = document.createElement("input");
+    authorInput.type = "text";
+    authorInput.placeholder = "著者";
+    const pagesInput = document.createElement("input");
+    pagesInput.type = "number";
+    pagesInput.placeholder = "総ページ数 (任意)";
+    pagesInput.min = "1";
+    const helper = document.createElement("div");
+    helper.className = "muted";
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.textContent = "この内容で追加";
+    addButton.addEventListener("click", async () => {
+        if (!currentUser) {
+            alert("ログインしてください");
+            return;
         }
-        actions.appendChild(startBtn);
-        card.appendChild(title);
-        card.appendChild(author);
-        card.appendChild(meta);
-        card.appendChild(actions);
-        list.appendChild(card);
+        const title = titleInput.value.trim();
+        const author = authorInput.value.trim();
+        const pagesVal = Number(pagesInput.value);
+        const totalPages = Number.isFinite(pagesVal) && pagesVal > 0 ? Math.round(pagesVal) : null;
+        if (!title || !author) {
+            helper.textContent = "タイトルと著者を入力してください";
+            return;
+        }
+        helper.textContent = "追加中...";
+        try {
+            await apiPost("/api/books", { title, author, total_pages_isbn: totalPages ?? undefined }, true);
+            helper.textContent = "追加しました。検索結果を更新します。";
+            titleInput.value = "";
+            authorInput.value = "";
+            pagesInput.value = "";
+            await loadApiData();
+            renderSearchResults(keyword);
+        }
+        catch (err) {
+            helper.textContent = "追加に失敗しました。入力を確認してください。";
+            console.error(err);
+        }
     });
+    addCard.appendChild(titleLabel);
+    addCard.appendChild(titleInput);
+    addCard.appendChild(authorInput);
+    addCard.appendChild(pagesInput);
+    addCard.appendChild(addButton);
+    addCard.appendChild(helper);
+    list.appendChild(addCard);
 }
 function renderUserBookList(status, targetElId) {
     const container = qs(`#${targetElId}`);

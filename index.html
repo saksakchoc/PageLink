@@ -491,10 +491,6 @@
       </form>
 
       <section>
-      <header>
-        <div class="title">タイムライン</div>
-        <div class="subtitle">みんなの読書ログ</div>
-      </header>
         <div id="reading-log-timeline" class="timeline"></div>
       </section>
 
@@ -546,7 +542,17 @@
       <div id="reading-list" class="timeline shelf-list"></div>
       <div id="finished-list" class="timeline shelf-list" style="display:none;"></div>
     </section>
-
+   <section id="timeline-view" class="view">
+      <div class="view-inner">
+        <header>
+          <div class="title">タイムライン</div>
+          <div class="subtitle">読書開始・読了のアクティビティを表示します</div>
+        </header>
+        <div class="divider">アクティビティ</div>
+        <div id="activity-timeline" class="timeline"></div>
+      </div>
+    </section>
+    
     <section id="profile-view" class="view">
       <header>
         <div class="title">プロフィール</div>
@@ -598,13 +604,4 @@
   <script src="./main.js"></script>
 </body>
 </html>
-    <section id="timeline-view" class="view">
-      <div class="view-inner">
-        <header>
-          <div class="title">タイムライン</div>
-          <div class="subtitle">読書開始・読了のアクティビティを表示します</div>
-        </header>
-        <div class="divider">アクティビティ</div>
-        <div id="activity-timeline" class="timeline"></div>
-      </div>
-    </section>
+ 

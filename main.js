@@ -843,9 +843,8 @@ function renderBookMeta() {
 function updateNavVisibility() {
     const loggedIn = Boolean(getAuthToken());
     document.querySelectorAll(".nav-btn").forEach((btn) => {
-        const isLoginBtn = btn.dataset.view === "login-view";
-        const isTimelineBtn = btn.dataset.view === "book-page";
-        const shouldShow = loggedIn ? !isLoginBtn : isLoginBtn || isTimelineBtn;
+        const view = btn.dataset.view;
+        const shouldShow = loggedIn ? view !== "login-view" : view === "login-view";
         btn.style.display = shouldShow ? "" : "none";
     });
 }

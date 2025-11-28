@@ -24,6 +24,8 @@ jobs:
             cd /opt/pagering
             git fetch origin main
             git reset --hard origin/main
-            docker-compose pull
-            docker-compose up -d --build reading-app reading-api
+            docker rm -f reading-pomodoro || true   # 古いフロントコンテナを削除
+            docker rm -f reading-api || true   # 古いフロントコンテナを削除
+            docker compose pull
+            docker compose up -d --build reading-app reading-api
 

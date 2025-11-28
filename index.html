@@ -59,6 +59,12 @@
       z-index: 5;
       align-items: center;
     }
+    .top-nav-brand {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--accent);
+      flex: 0 0 auto;
+    }
     .nav-buttons {
       display: flex;
       flex-wrap: wrap;
@@ -275,6 +281,7 @@
 </head>
 <body>
   <nav class="top-nav">
+    <div class="top-nav-brand">feReadle</div>
     <div class="nav-buttons">
       <button class="nav-btn" data-view="login-view" type="button">ログイン</button>
       <button class="nav-btn" data-view="search-view" type="button">本を探す</button>
@@ -334,14 +341,8 @@
 
     <section id="book-page" class="view">
       <header>
-        <div class="title">feReadle</div>
         <div id="current-book-subtitle" class="subtitle">いま読んでいる本：なし</div>
       </header>
-
-      <div class="user-bar">
-        <div>ログイン中：<span id="current-user-name" class="user-name">-</span></div>
-        <button id="switch-user-btn" class="user-btn" type="button">ユーザー切り替え</button>
-      </div>
 
       <form id="log-form">
         <div class="input-row">

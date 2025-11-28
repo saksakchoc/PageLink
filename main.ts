@@ -136,10 +136,8 @@ async function apiPatch<T>(path: string, body: Record<string, unknown>, withAuth
 }
 
 function renderUserArea() {
-  const el = qs<HTMLSpanElement>("#current-user-name");
   const navName = document.querySelector<HTMLSpanElement>("#nav-user-name");
   const text = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
-  el.textContent = text;
   if (navName) navName.textContent = text;
 }
 
@@ -914,11 +912,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const lastView = hasSession ? localStorage.getItem(LAST_VIEW_KEY) || "book-page" : "login-view";
   setActiveView(lastView);
   if (!hasSession) updateNavVisibility();
-
-  const switchBtn = qs<HTMLButtonElement>("#switch-user-btn");
-  switchBtn.addEventListener("click", () => {
-    setActiveView("login-view");
-  });
 
   renderSearchResults("");
   renderAllViews();

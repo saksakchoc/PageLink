@@ -97,10 +97,8 @@ async function apiPatch(path, body, withAuth = false) {
     return (await res.json());
 }
 function renderUserArea() {
-    const el = qs("#current-user-name");
     const navName = document.querySelector("#nav-user-name");
     const text = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
-    el.textContent = text;
     if (navName)
         navName.textContent = text;
 }
@@ -817,10 +815,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     setActiveView(lastView);
     if (!hasSession)
         updateNavVisibility();
-    const switchBtn = qs("#switch-user-btn");
-    switchBtn.addEventListener("click", () => {
-        setActiveView("login-view");
-    });
     renderSearchResults("");
     renderAllViews();
     setupSearchHandlers();

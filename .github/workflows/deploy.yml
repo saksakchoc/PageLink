@@ -22,6 +22,8 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             cd /opt/pagering
-            git pull
-            docker compose build
-            docker compose up -d
+            git fetch origin main
+            git reset --hard origin/main
+            docker-compose pull
+            docker-compose up -d --build reading-app reading-api
+

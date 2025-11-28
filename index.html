@@ -84,9 +84,35 @@
     .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
     .nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     .top-nav-user {
-      font-weight: 600;
-      color: #3d3a33;
       margin-left: auto;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .top-nav-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px solid #d8d2c7;
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+      padding: 0;
+    }
+    .top-nav-avatar img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      display: none;
+    }
+    .top-nav-avatar span {
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 1rem;
     }
     @media (max-width: 600px) {
       .top-nav-user {
@@ -199,9 +225,73 @@
     }
     .progress { font-weight: 800; color: var(--accent); font-size: 1.1rem; }
     .timestamp { color: #6b665d; font-size: 0.9rem; }
-    .username { color: #5a564c; font-size: 0.95rem; font-weight: 700; }
+    .username { color: #5a564c; font-size: 0.9rem; font-weight: 700; }
+    .timeline-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .timeline-avatar {
+      width: 35px;
+      height: 35px;
+      border-radius: 50%;
+      background: #e6efea;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--accent);
+      overflow: hidden;
+      flex-shrink: 0;
+      font-size: 0.8rem;
+    }
+    .timeline-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .timeline-user .muted { margin-top: 2px; font-size: 0.8rem; }
     .content { line-height: 1.5; white-space: pre-wrap; color: #2f2b25; }
     .divider { margin: 0 0 10px 2px; color: #4a4a4a; font-size: 1rem; font-weight: 700; }
+    .profile-header { display: flex; align-items: center; gap: 16px; }
+    .profile-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: #dfe9df;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--accent);
+      overflow: hidden;
+    }
+    .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-avatar.fallback { background: #e9f2e6; }
+    .profile-bio { margin-top: 10px; color: #4a4a4a; line-height: 1.5; }
+    .profile-form-preview { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    #profile-icon-preview {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 2px solid #d8d2c7;
+      object-fit: cover;
+      display: none;
+    }
+    #profile-icon-empty {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 2px dashed #d8d2c7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b665d;
+      font-size: 0.85rem;
+    }
+    .profile-icon-controls { display: grid; gap: 6px; min-width: 220px; }
 
     .overlay {
       position: fixed; inset: 0;
@@ -285,12 +375,16 @@
     <div class="nav-buttons">
       <button class="nav-btn" data-view="login-view" type="button">ログイン</button>
       <button class="nav-btn" data-view="search-view" type="button">本を探す</button>
-      <button class="nav-btn" data-view="book-page" type="button">タイムライン</button>
+      <button class="nav-btn" data-view="book-page" type="button">読書中</button>
       <button class="nav-btn" data-view="my-reading-view" type="button">積読</button>
       <button class="nav-btn" data-view="my-finished-view" type="button">読了</button>
-      <button class="nav-btn" data-view="profile-view" type="button">プロフィール</button>
     </div>
-    <div class="top-nav-user">ログイン中：<span id="nav-user-name" class="user-name">-</span></div>
+    <div class="top-nav-user">
+      <button id="nav-profile-btn" class="top-nav-avatar" type="button" aria-label="プロフィール">
+        <img id="nav-avatar-img" alt="プロフィールアイコン">
+        <span id="nav-avatar-fallback">?</span>
+      </button>
+    </div>
   </nav>
 
   <main class="page">
@@ -341,6 +435,7 @@
 
     <section id="book-page" class="view">
       <header>
+        <div class="title">読書中</div>
         <div id="current-book-subtitle" class="subtitle">いま読んでいる本：なし</div>
       </header>
 
@@ -370,7 +465,7 @@
       </form>
 
       <section>
-        <div class="divider">タイムライン</div>
+        <div class="divider">読書中</div>
         <div id="timeline" class="timeline"></div>
       </section>
     </section>
@@ -428,9 +523,31 @@
     <section id="profile-view" class="view">
       <header>
         <div class="title">プロフィール</div>
-        <div class="subtitle">表示名・自己紹介・アイコン編集をここで実装予定</div>
+        <div class="subtitle"></div>
       </header>
       <div id="profile-card" class="placeholder-card"></div>
+      <form id="profile-form" class="placeholder-card" style="display:grid; gap:12px; margin-top:14px;">
+        <label for="profile-display-name">表示名</label>
+        <input id="profile-display-name" type="text" maxlength="40" required>
+        <label for="profile-bio">自己紹介</label>
+        <textarea id="profile-bio" maxlength="500" placeholder="自己紹介や好きなジャンルを書いてください"></textarea>
+        <div>
+          <label for="profile-icon-input" style="display:block; font-weight:600; margin-bottom:8px;">アイコン画像</label>
+          <div class="profile-form-preview">
+            <img id="profile-icon-preview" alt="プロフィールアイコン">
+            <div id="profile-icon-empty">未設定</div>
+            <div class="profile-icon-controls">
+              <input id="profile-icon-input" type="file" accept="image/*">
+              <div class="muted">2MBまでの画像をアップロードできます</div>
+              <button id="profile-icon-clear" type="button" class="small-btn">アイコンをリセット</button>
+            </div>
+          </div>
+        </div>
+        <div class="actions" style="justify-content:flex-end;">
+          <button type="submit">プロフィールを保存</button>
+        </div>
+        <div id="profile-form-message" class="error"></div>
+      </form>
     </section>
   </main>
 

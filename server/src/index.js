@@ -7,7 +7,7 @@ import path from "path";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
 const DB_PATH = process.env.DB_PATH || "./data/app.db";
@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE,
   username TEXT UNIQUE,
   display_name TEXT NOT NULL,
-  password_hash TEXT NOT NULL
+  password_hash TEXT NOT NULL,
+  bio TEXT DEFAULT '',
+  icon_url TEXT
 );
 CREATE TABLE IF NOT EXISTS books (
   id INTEGER PRIMARY KEY,
@@ -97,9 +99,19 @@ CREATE TABLE IF NOT EXISTS likes (
 `);
 
 // add username column/index if missing
-const userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+let userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
 if (!userCols.includes("username")) {
   db.exec("ALTER TABLE users ADD COLUMN username TEXT");
+  userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+}
+
+if (!userCols.includes("bio")) {
+  db.exec("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''");
+  userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+}
+
+if (!userCols.includes("icon_url")) {
+  db.exec("ALTER TABLE users ADD COLUMN icon_url TEXT");
 }
 // migrate email NOT NULL -> NULL if必要
 migrateUsersIfNeeded();
@@ -132,6 +144,17 @@ insertBook.run(105, "\u7363\u306e\u594f\u8005 \u5916\u4f1d \u5239\u90a3", "\u4e0
 
 const tokens = new Map(); // token -> userId
 
+function mapUserRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.username,
+    displayName: row.display_name,
+    bio: row.bio || "",
+    iconUrl: row.icon_url || null,
+  };
+}
+
 const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo");
 if (demoUser) {
   db.prepare(
@@ -150,7 +173,9 @@ function issueToken(userId) {
 }
 
 function findUserByUsername(username) {
-  return db.prepare("SELECT id, username, email, display_name, password_hash FROM users WHERE username = ?").get(username);
+  return db
+    .prepare("SELECT id, username, email, display_name, password_hash, bio, icon_url FROM users WHERE username = ?")
+    .get(username);
 }
 
 function getUserFromToken(req) {
@@ -159,7 +184,7 @@ function getUserFromToken(req) {
   if (!token) return null;
   const uid = tokens.get(token);
   if (!uid) return null;
-  return db.prepare("SELECT id, username, display_name FROM users WHERE id = ?").get(uid) || null;
+  return db.prepare("SELECT id, username, display_name, bio, icon_url FROM users WHERE id = ?").get(uid) || null;
 }
 
 function authMiddleware(req, res, next) {
@@ -199,7 +224,10 @@ app.post("/api/auth/signup", (req, res) => {
     const result = db
       .prepare("INSERT INTO users (username, display_name, password_hash) VALUES (?, ?, ?)")
       .run(userId, displayName, passwordHash);
-    const user = { id: result.lastInsertRowid, userId, displayName };
+    const row = db
+      .prepare("SELECT id, username, display_name, bio, icon_url FROM users WHERE id = ?")
+      .get(result.lastInsertRowid);
+    const user = mapUserRow(row);
     const token = issueToken(user.id);
     res.status(201).json({ token, user });
   } catch (err) {
@@ -213,7 +241,7 @@ app.post("/api/auth/login", (req, res) => {
   if (!userId || !password) return res.status(400).json({ error: "userId and password are required" });
   const userRow = findUserByUsername(userId);
   if (!userRow || userRow.password_hash !== hashPassword(password)) return res.status(401).json({ error: "invalid credentials" });
-  const user = { id: userRow.id, userId: userRow.username, displayName: userRow.display_name };
+  const user = mapUserRow(userRow);
   const token = issueToken(user.id);
   res.json({ token, user });
 });
@@ -221,13 +249,53 @@ app.post("/api/auth/login", (req, res) => {
 app.get("/api/auth/me", (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: "unauthorized" });
-  res.json({ id: user.id, userId: user.username, displayName: user.display_name || user.displayName });
+  res.json(mapUserRow(user));
 });
 
 // Users
 app.get("/api/users", (_req, res) => {
-  const rows = db.prepare("SELECT id, username, display_name FROM users").all();
-  res.json(rows.map((u) => ({ id: u.id, userId: u.username, displayName: u.display_name })));
+  const rows = db.prepare("SELECT id, username, display_name, bio, icon_url FROM users").all();
+  res.json(rows.map((u) => mapUserRow(u)));
+});
+
+app.patch("/api/users/me", authMiddleware, (req, res) => {
+  const { displayName, bio, iconData } = req.body || {};
+  const updates = [];
+  const params = [];
+
+  if (displayName !== undefined) {
+    const trimmed = String(displayName).trim();
+    if (!trimmed) return res.status(400).json({ error: "displayName is required" });
+    updates.push("display_name = ?");
+    params.push(trimmed);
+  }
+
+  if (bio !== undefined) {
+    const text = typeof bio === "string" ? bio.slice(0, 500) : "";
+    updates.push("bio = ?");
+    params.push(text);
+  }
+
+  if (iconData !== undefined) {
+    if (iconData === null || iconData === "") {
+      updates.push("icon_url = NULL");
+    } else if (typeof iconData === "string") {
+      updates.push("icon_url = ?");
+      params.push(iconData);
+    } else {
+      return res.status(400).json({ error: "iconData must be a string or null" });
+    }
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: "no fields to update" });
+
+  const sql = `UPDATE users SET ${updates.join(", ")} WHERE id = ?`;
+  params.push(req.user.id);
+  db.prepare(sql).run(...params);
+  const updatedRow = db
+    .prepare("SELECT id, username, display_name, bio, icon_url FROM users WHERE id = ?")
+    .get(req.user.id);
+  res.json(mapUserRow(updatedRow));
 });
 
 // Books

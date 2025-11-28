@@ -12,6 +12,8 @@ let currentUser = null;
 let currentUserBook = null;
 let currentBookId = null;
 let tempReadingMode = null;
+let pendingIconData = undefined;
+let profileViewUserId = null;
 function qs(selector) {
     const el = document.querySelector(selector);
     if (!el)
@@ -97,10 +99,32 @@ async function apiPatch(path, body, withAuth = false) {
     return (await res.json());
 }
 function renderUserArea() {
-    const navName = document.querySelector("#nav-user-name");
-    const text = currentUser ? `${currentUser.displayName} (@${currentUser.userId})` : "-";
-    if (navName)
-        navName.textContent = text;
+    const avatarImg = document.querySelector("#nav-avatar-img");
+    const fallback = document.querySelector("#nav-avatar-fallback");
+    const btn = document.querySelector("#nav-profile-btn");
+    if (!avatarImg || !fallback || !btn)
+        return;
+    if (currentUser?.iconUrl) {
+        avatarImg.src = currentUser.iconUrl;
+        avatarImg.style.display = "block";
+        fallback.style.display = "none";
+    }
+    else {
+        avatarImg.removeAttribute("src");
+        avatarImg.style.display = "none";
+        const initial = currentUser ? currentUser.displayName.trim().charAt(0) : "?";
+        fallback.textContent = initial || "?";
+        fallback.style.display = "inline";
+    }
+    btn.title = currentUser ? `${currentUser.displayName}のプロフィール` : "ログインしてください";
+}
+function openProfileView(userId) {
+    if (typeof userId === "number")
+        profileViewUserId = userId;
+    else
+        profileViewUserId = currentUser?.id ?? null;
+    renderAllViews();
+    setActiveView("profile-view");
 }
 function renderSearchResults(keyword) {
     const list = qs("#search-results");
@@ -301,34 +325,204 @@ function renderUserBookList(status, targetElId) {
 function renderProfileCard() {
     const card = qs("#profile-card");
     card.innerHTML = "";
+    const targetUser = (profileViewUserId && apiUsers.find((u) => u.id === profileViewUserId)) || currentUser || null;
+    if (!targetUser) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "プロフィールを表示できるユーザーがいません。";
+        card.appendChild(empty);
+        return;
+    }
+    const isOwnProfile = currentUser?.id === targetUser.id;
+    const header = document.createElement("div");
+    header.className = "profile-header";
+    const avatar = document.createElement("div");
+    avatar.className = "profile-avatar";
+    if (targetUser.iconUrl) {
+        const img = document.createElement("img");
+        img.src = targetUser.iconUrl;
+        img.alt = "プロフィールアイコン";
+        avatar.appendChild(img);
+    }
+    else {
+        avatar.classList.add("fallback");
+        const initials = targetUser.displayName.trim().charAt(0);
+        avatar.textContent = initials || "?";
+    }
+    const textWrap = document.createElement("div");
     const name = document.createElement("div");
     name.className = "username";
-    name.textContent = currentUser ? currentUser.displayName : "未ログイン";
+    name.textContent = targetUser.displayName;
     const idText = document.createElement("div");
     idText.className = "muted";
-    idText.textContent = currentUser ? `@${currentUser.userId}` : "ログインしてください";
+    idText.textContent = `@${targetUser.userId}`;
+    textWrap.appendChild(name);
+    textWrap.appendChild(idText);
+    header.appendChild(avatar);
+    header.appendChild(textWrap);
+    card.appendChild(header);
     const bio = document.createElement("div");
-    bio.style.marginTop = "6px";
-    bio.textContent = "本とコーヒーが好きなデザイナー";
-    card.appendChild(name);
-    card.appendChild(idText);
+    bio.className = "profile-bio";
+    bio.textContent = targetUser.bio ? targetUser.bio : "自己紹介はまだ設定されていません。";
     card.appendChild(bio);
-    const actions = document.createElement("div");
-    actions.className = "actions";
-    actions.style.justifyContent = "flex-start";
-    const logoutBtn = document.createElement("button");
-    logoutBtn.type = "button";
-    logoutBtn.textContent = "ログアウト";
-    logoutBtn.disabled = !currentUser;
-    logoutBtn.addEventListener("click", async () => {
-        setAuthToken(null);
-        currentUser = null;
-        await loadApiData();
-        renderAllViews();
-        setActiveView("login-view");
+    if (!isOwnProfile) {
+        const note = document.createElement("div");
+        note.className = "muted";
+        note.style.marginTop = "8px";
+        note.textContent = "このユーザーのプロフィールを表示中";
+        card.appendChild(note);
+    }
+    if (isOwnProfile) {
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        actions.style.justifyContent = "flex-start";
+        const logoutBtn = document.createElement("button");
+        logoutBtn.type = "button";
+        logoutBtn.textContent = "ログアウト";
+        logoutBtn.disabled = !currentUser;
+        logoutBtn.addEventListener("click", async () => {
+            setAuthToken(null);
+            currentUser = null;
+            profileViewUserId = null;
+            await loadApiData();
+            renderAllViews();
+            setActiveView("login-view");
+        });
+        actions.appendChild(logoutBtn);
+        card.appendChild(actions);
+    }
+}
+function updateProfileIconPreview(src) {
+    const preview = document.querySelector("#profile-icon-preview");
+    const emptyState = document.querySelector("#profile-icon-empty");
+    if (!preview || !emptyState)
+        return;
+    if (src) {
+        preview.src = src;
+        preview.style.display = "block";
+        emptyState.style.display = "none";
+    }
+    else {
+        preview.removeAttribute("src");
+        preview.style.display = "none";
+        emptyState.style.display = "flex";
+    }
+}
+function renderProfileForm() {
+    const form = document.querySelector("#profile-form");
+    if (!form)
+        return;
+    const nameInput = qs("#profile-display-name");
+    const bioInput = qs("#profile-bio");
+    const fileInput = qs("#profile-icon-input");
+    const clearBtn = qs("#profile-icon-clear");
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const messageEl = qs("#profile-form-message");
+    const targetUser = (profileViewUserId && apiUsers.find((u) => u.id === profileViewUserId)) || currentUser || null;
+    const isLoggedIn = Boolean(currentUser);
+    const isOwnProfile = Boolean(targetUser && currentUser && targetUser.id === currentUser.id);
+    form.style.display = isOwnProfile ? "grid" : "none";
+    if (!isOwnProfile) {
+        messageEl.textContent = targetUser ? `${targetUser.displayName}のプロフィールです` : "";
+        return;
+    }
+    nameInput.disabled = !isLoggedIn;
+    bioInput.disabled = !isLoggedIn;
+    fileInput.disabled = !isLoggedIn;
+    clearBtn.disabled = !isLoggedIn;
+    if (submitBtn)
+        submitBtn.disabled = !isLoggedIn;
+    if (!isLoggedIn || !targetUser) {
+        nameInput.value = "";
+        bioInput.value = "";
+        fileInput.value = "";
+        pendingIconData = undefined;
+        updateProfileIconPreview(null);
+        messageEl.textContent = "プロフィールを編集するにはログインしてください";
+        return;
+    }
+    nameInput.value = targetUser.displayName;
+    bioInput.value = targetUser.bio || "";
+    fileInput.value = "";
+    pendingIconData = undefined;
+    updateProfileIconPreview(targetUser.iconUrl || null);
+}
+function setupProfileForm() {
+    const form = qs("#profile-form");
+    const nameInput = qs("#profile-display-name");
+    const bioInput = qs("#profile-bio");
+    const fileInput = qs("#profile-icon-input");
+    const clearBtn = qs("#profile-icon-clear");
+    const messageEl = qs("#profile-form-message");
+    const MAX_FILE_SIZE = 2 * 1024 * 1024;
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!currentUser) {
+            messageEl.textContent = "ログインしてください";
+            return;
+        }
+        const displayName = nameInput.value.trim();
+        if (!displayName) {
+            messageEl.textContent = "表示名を入力してください";
+            return;
+        }
+        const payload = { displayName, bio: bioInput.value.trim() };
+        if (pendingIconData !== undefined)
+            payload.iconData = pendingIconData;
+        messageEl.textContent = "保存中...";
+        try {
+            const updated = await apiPatch("/api/users/me", payload, true);
+            pendingIconData = undefined;
+            currentUser = updated;
+            apiUsers = apiUsers.map((u) => (u.id === updated.id ? { ...u, ...updated } : u));
+            renderAllViews();
+            messageEl.textContent = "プロフィールを更新しました";
+        }
+        catch (err) {
+            messageEl.textContent = "プロフィールの更新に失敗しました";
+            console.error(err);
+        }
     });
-    actions.appendChild(logoutBtn);
-    card.appendChild(actions);
+    fileInput.addEventListener("change", () => {
+        messageEl.textContent = "";
+        if (!currentUser) {
+            fileInput.value = "";
+            messageEl.textContent = "ログインしてください";
+            return;
+        }
+        const file = fileInput.files?.[0];
+        if (!file) {
+            pendingIconData = undefined;
+            updateProfileIconPreview(currentUser.iconUrl || null);
+            return;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+            messageEl.textContent = "ファイルサイズは2MB以下にしてください";
+            fileInput.value = "";
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            pendingIconData = reader.result;
+            updateProfileIconPreview(pendingIconData);
+        };
+        reader.onerror = () => {
+            messageEl.textContent = "画像の読み込みに失敗しました";
+            fileInput.value = "";
+        };
+        reader.readAsDataURL(file);
+    });
+    clearBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (!currentUser) {
+            messageEl.textContent = "ログインしてください";
+            return;
+        }
+        fileInput.value = "";
+        pendingIconData = null;
+        updateProfileIconPreview(null);
+        messageEl.textContent = "アイコンをリセットします";
+    });
 }
 function renderApiTimeline() {
     const container = qs("#timeline");
@@ -365,10 +559,47 @@ function renderApiTimeline() {
         time.textContent = formatDate(log.created_at);
         top.appendChild(prog);
         top.appendChild(time);
+        const userInfo = document.createElement("div");
+        userInfo.className = "timeline-user";
+        const avatar = document.createElement("div");
+        avatar.className = "timeline-avatar";
+        const user = apiUsers.find((u) => u.id === log.user_id);
+        if (user?.iconUrl) {
+            const img = document.createElement("img");
+            img.src = user.iconUrl;
+            img.alt = `${user.displayName}のアイコン`;
+            avatar.appendChild(img);
+        }
+        else {
+            const initial = user?.displayName?.trim().charAt(0) || "?";
+            avatar.textContent = initial;
+        }
+        const userText = document.createElement("div");
         const userName = document.createElement("div");
         userName.className = "username";
-        const user = apiUsers.find((u) => u.id === log.user_id);
         userName.textContent = user ? user.displayName : "ユーザー";
+        const userId = document.createElement("div");
+        userId.className = "muted";
+        userId.textContent = user ? `@${user.userId}` : "";
+        userText.appendChild(userName);
+        if (user)
+            userText.appendChild(userId);
+        userInfo.appendChild(avatar);
+        userInfo.appendChild(userText);
+        if (user) {
+            userInfo.style.cursor = "pointer";
+            userInfo.addEventListener("click", () => openProfileView(user.id));
+            userInfo.tabIndex = 0;
+            userInfo.addEventListener("keypress", (ev) => {
+                if (ev.key === "Enter" || ev.key === " ") {
+                    ev.preventDefault();
+                    openProfileView(user.id);
+                }
+            });
+        }
+        else {
+            userInfo.style.cursor = "default";
+        }
         const tags = document.createElement("div");
         tags.className = "tag-row";
         const tag = document.createElement("span");
@@ -379,7 +610,7 @@ function renderApiTimeline() {
         content.className = "content";
         content.textContent = log.content;
         card.appendChild(top);
-        card.appendChild(userName);
+        card.appendChild(userInfo);
         card.appendChild(content);
         card.appendChild(tags);
         container.appendChild(card);
@@ -498,6 +729,7 @@ function renderAllViews() {
     renderUserBookList("reading", "reading-list");
     renderUserBookList("finished", "finished-list");
     renderProfileCard();
+    renderProfileForm();
     renderApiTimeline();
     updateProgressInput();
     renderCurrentBookSubtitle();
@@ -675,6 +907,14 @@ async function restoreSession() {
 async function loadApiData() {
     await restoreSession();
     apiUsers = await apiGet("/api/users");
+    if (profileViewUserId) {
+        const exists = apiUsers.some((u) => u.id === profileViewUserId);
+        if (!exists)
+            profileViewUserId = currentUser?.id ?? null;
+    }
+    else if (profileViewUserId === null) {
+        profileViewUserId = currentUser?.id ?? null;
+    }
     apiBooks = await apiGet("/api/books");
     if (!currentBookId) {
         const stored = Number(localStorage.getItem(CURRENT_BOOK_STORAGE_KEY) || "");
@@ -818,6 +1058,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 setActiveView(target);
         });
     });
+    const navProfileBtn = document.querySelector("#nav-profile-btn");
+    if (navProfileBtn) {
+        navProfileBtn.addEventListener("click", () => {
+            openProfileView();
+        });
+    }
     const hasSession = Boolean(getAuthToken());
     const lastView = hasSession ? localStorage.getItem(LAST_VIEW_KEY) || "book-page" : "login-view";
     setActiveView(lastView);
@@ -830,4 +1076,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderBookSettingsHandlers();
     setupDetailProgressHandlers();
     setupFormHandlers();
+    setupProfileForm();
 });
